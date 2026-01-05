@@ -10,6 +10,8 @@
 7. [Navigation & Editing](#navigation--editing)
 8. [Error Handling](#error-handling)
 9. [Security Considerations](#security-considerations)
+10. [Response Management](#response-management)
+11. [Analytics](#analytics)
 
 ---
 
@@ -24,6 +26,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 - **Resumable sessions** allowing users to pause and continue later
 - **Navigation** enabling users to review and edit previous answers
 - **Real-time validation** ensuring data quality and completeness
+- **Organization-based multi-tenancy** for data isolation
 
 ### Key Product Features
 
@@ -33,6 +36,9 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 4. **Smart Validation**: Field-level and cross-section validation
 5. **Progress Tracking**: Real-time progress indicators
 6. **Data Integrity**: Encrypted storage for sensitive information
+7. **Response Management**: Authenticated access to view, export, and analyze responses
+8. **Batch Invitations**: Send survey invitations to multiple recipients
+9. **Analytics**: Aggregated statistics and completion metrics
 
 ---
 
@@ -114,9 +120,10 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 **What Happens**:
 1. User submits last section
 2. System validates final answers
-3. System marks survey as complete
-4. User sees completion screen with thank you message
-5. Session token remains valid for viewing results (if applicable)
+3. User (or system) calls `POST /finish/` to mark survey complete
+4. System marks survey response status as `COMPLETED` and records timestamp
+5. User sees completion screen with thank you message
+6. Session token remains valid for viewing results (if applicable)
 
 **Product Goals**:
 - Clear completion confirmation
@@ -136,40 +143,63 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 └──────┬──────┘
        │ HTTP/REST
        │
-┌──────▼─────────────────────────────────────────┐
-│         Django REST Framework API              │
-│  ┌──────────────────────────────────────────┐  │
-│  │  SubmissionViewSet                       │  │
-│  │  - start_survey()                        │  │
-│  │  - get_current_section()                 │  │
-│  │  - submit_section()                      │  │
-│  │  - get_section() [navigation]            │  │
-│  │  - get_survey_details()                  │  │
-│  └──────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────┐  │
-│  │  ConditionalLogicService                 │  │
-│  │  - evaluate_rule()                       │  │
-│  │  - get_visible_sections()                │  │
-│  │  - get_visible_fields()                  │  │
-│  │  - get_field_options()                   │  │
-│  │  - validate_submission()                 │  │
-│  └──────────────────────────────────────────┘  │
-└──────┬─────────────────────────────────────────┘
+┌──────▼─────────────────────────────────────────────────────────┐
+│              Django REST Framework API                          │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  SubmissionViewSet (Public/Anonymous)                    │  │
+│  │  - start_survey()                                        │  │
+│  │  - get_current_section()                                 │  │
+│  │  - submit_section()                                      │  │
+│  │  - get_section() [navigation]                            │  │
+│  │  - finish_survey()                                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  ResponseViewSet (Authenticated + RBAC)                  │  │
+│  │  - list() [GET /surveys/{id}/responses/]                 │  │
+│  │  - retrieve() [GET /responses/{id}/]                     │  │
+│  │  - export_responses() [GET /surveys/{id}/responses/export/] │
+│  │  - analytics() [GET /surveys/{id}/responses/analytics/]  │  │
+│  │  - send_invitations() [POST /surveys/{id}/invitations/]  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  ConditionalLogicService                                 │  │
+│  │  - evaluate_rule()                                       │  │
+│  │  - get_visible_sections()                                │  │
+│  │  - get_visible_fields()                                  │  │
+│  │  - get_field_options()                                   │  │
+│  │  - validate_submission()                                 │  │
+│  │  - get_survey_progress()                                 │  │
+│  │  - is_survey_complete()                                  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  AnalyticsService                                        │  │
+│  │  - get_survey_analytics()                                │  │
+│  │  - invalidate_survey_cache()                             │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Celery Tasks (Async)                                    │  │
+│  │  - export_responses_async()                              │  │
+│  │  - send_survey_invitations()                             │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└──────┬─────────────────────────────────────────────────────────┘
        │
-┌──────▼─────────────────────────────────────────┐
-│            Database Layer                       │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────┐ │
-│  │ Survey   │  │ SurveyResponse│ │FieldAnswer│ │
-│  │ Section  │  │              │  │          │ │
-│  │ Field    │  │              │  │          │ │
-│  │ Rule     │  │              │  │          │ │
-│  └──────────┘  └──────────────┘  └──────────┘ │
-└─────────────────────────────────────────────────┘
+┌──────▼─────────────────────────────────────────────────────────┐
+│            Database Layer                                       │
+│  ┌────────────┐  ┌───────────────┐  ┌────────────┐  ┌────────┐ │
+│  │   Survey   │  │SurveyResponse │  │FieldAnswer │  │Invitation│
+│  │  Section   │  │               │  │            │  │        │ │
+│  │   Field    │  │               │  │            │  │        │ │
+│  │   Rule     │  │               │  │            │  │        │ │
+│  │Organization│  │               │  │            │  │        │ │
+│  └────────────┘  └───────────────┘  └────────────┘  └────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### API Endpoints
 
-#### 1. Start Survey Session
+#### Public Submission Endpoints (Anonymous)
+
+##### 1. Start Survey Session
 **Endpoint**: `POST /api/v1/surveys/{survey_id}/submissions/start/`
 
 **Purpose**: Initialize a new survey response session
@@ -198,7 +228,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 
 ---
 
-#### 2. Get Current Section
+##### 2. Get Current Section
 **Endpoint**: `GET /api/v1/submissions/current-section/`
 
 **Purpose**: Retrieve the next section the user should complete
@@ -227,7 +257,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
     "sections_completed": 1,
     "total_sections": 3,
     "sections_remaining": 2,
-    "percentage": 33
+    "percentage": 33.33
   }
 }
 ```
@@ -254,7 +284,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 
 ---
 
-#### 3. Submit Section
+##### 3. Submit Section
 **Endpoint**: `POST /api/v1/submissions/submit-section/`
 
 **Purpose**: Save answers for a section and validate against business rules
@@ -282,7 +312,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
     "sections_completed": 2,
     "total_sections": 3,
     "sections_remaining": 1,
-    "percentage": 66
+    "percentage": 66.67
   }
 }
 ```
@@ -332,7 +362,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 
 ---
 
-#### 4. Get Specific Section (Navigation)
+##### 4. Get Specific Section (Navigation)
 **Endpoint**: `GET /api/v1/submissions/sections/{section_id}/`
 
 **Purpose**: Retrieve a specific section with pre-filled answers for editing
@@ -352,7 +382,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
         "label": "Question?",
         "field_type": "text",
         "is_required": true,
-        "current_value": "previous answer",  // Pre-filled!
+        "current_value": "previous answer",
         "options": [...]
       }
     ]
@@ -361,7 +391,8 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
   "progress": {
     "sections_completed": 2,
     "total_sections": 3,
-    "percentage": 66
+    "sections_remaining": 1,
+    "percentage": 66.67
   }
 }
 ```
@@ -384,38 +415,39 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 
 ---
 
-#### 5. Get Survey Details
-**Endpoint**: `GET /api/v1/submissions/survey-details/`
+##### 5. Finish Survey
+**Endpoint**: `POST /api/v1/submissions/finish/`
 
-**Purpose**: Get overview of survey state, progress, and metadata
+**Purpose**: Explicitly mark the survey response as completed
 
 **Headers**: `X-Session-Token: uuid`
+
+**Request Body**: None (empty body)
 
 **Response**:
 ```json
 {
-  "survey": {
-    "id": "uuid",
-    "title": "Survey Title",
-    "description": "Survey description"
-  },
-  "status": "IN_PROGRESS",
-  "progress": {
-    "sections_completed": 2,
-    "total_sections": 3,
-    "sections_remaining": 1,
-    "percentage": 66
-  },
-  "started_at": "2024-01-01T10:00:00Z",
-  "last_updated": "2024-01-01T10:15:00Z",
-  "completed_at": null
+  "message": "Survey completed successfully",
+  "completed_at": "2024-01-15T10:30:00Z"
 }
 ```
 
 **Technical Details**:
-- Provides high-level survey state
-- Useful for resume flow or progress display
-- Does not include field-level details
+- Validates session token
+- Changes status from `IN_PROGRESS` to `COMPLETED`
+- Records completion timestamp (`completed_at`)
+- Prevents further modifications
+
+**Database Operations**:
+- `SELECT SurveyResponse WHERE session_token = ? AND status = 'in_progress'`
+- `UPDATE SurveyResponse SET status = 'completed', completed_at = NOW()`
+
+**Use Cases**:
+- Explicit completion by user clicking "Submit" button
+- Final confirmation after last section submission
+- Mark survey as done even if some optional sections skipped
+
+**Note**: This endpoint is optional if `submit_section` returns `is_complete: true` for the final section.
 
 ---
 
@@ -423,9 +455,9 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 
 ```
 ┌─────────────┐
-│   NOT_STARTED│
+│ NOT_STARTED │
 └──────┬──────┘
-       │ POST /start/
+       │ POST /surveys/{id}/submissions/start/
        ▼
 ┌─────────────┐
 │ IN_PROGRESS │◄──────────────┐
@@ -435,27 +467,28 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
        │ POST /submit-section/ │
        │                       │
        │                       │
-       │ (all sections done)   │
+       │ POST /finish/         │
+       │ (or all sections done)│
        ▼                       │
 ┌─────────────┐                │
 │  COMPLETED  │                │
 └─────────────┘                │
-                                │
-                    (navigation/edit)
-                                │
-                                └─────────────┘
+                               │
+                   (navigation/edit)
+                               │
+                               └─────────────────
 ```
 
 **States**:
 - `NOT_STARTED`: Survey not initiated
 - `IN_PROGRESS`: Survey started, sections being completed
-- `COMPLETED`: All sections submitted
+- `COMPLETED`: Survey finished (via explicit `finish` call or all sections done)
 
 **Transitions**:
 - `NOT_STARTED` → `IN_PROGRESS`: `POST /surveys/{id}/submissions/start/`
 - `IN_PROGRESS` → `IN_PROGRESS`: `POST /submit-section/` (partial completion)
-- `IN_PROGRESS` → `COMPLETED`: `POST /submit-section/` (last section)
-- `COMPLETED` → `IN_PROGRESS`: Navigation/edit (if allowed)
+- `IN_PROGRESS` → `COMPLETED`: `POST /finish/` (explicit completion)
+- `COMPLETED` → `IN_PROGRESS`: Navigation/edit (if allowed - future feature)
 
 ---
 
@@ -466,7 +499,7 @@ The Survey Submission Lifecycle is the complete journey a user takes from discov
 ```
 Frontend                          Backend                          Database
    │                                │                                │
-   │ POST /surveys/{id}/submissions/start/│                         │
+   │ POST /surveys/{id}/submissions/start/                          │
    │ (no body)                      │                                │
    ├───────────────────────────────>│                                │
    │                                │ Create SurveyResponse          │
@@ -476,7 +509,7 @@ Frontend                          Backend                          Database
    │ {session_token}                │                                │
    │<───────────────────────────────┤                                │
    │                                │                                │
-   │ GET /current-section/           │                                │
+   │ GET /current-section/          │                                │
    │ X-Session-Token                │                                │
    ├───────────────────────────────>│                                │
    │                                │ Get visible sections           │
@@ -508,6 +541,16 @@ Frontend                          Backend                          Database
    │ [Repeat until complete]        │                                │
    │                                │                                │
    │ [When complete]                │                                │
+   │ POST /finish/                  │                                │
+   │ X-Session-Token                │                                │
+   ├───────────────────────────────>│                                │
+   │                                │ Mark as completed              │
+   │                                ├───────────────────────────────>│
+   │                                │<───────────────────────────────┤
+   │                                │                                │
+   │ {message, completed_at}        │                                │
+   │<───────────────────────────────┤                                │
+   │                                │                                │
    │ Show completion screen         │                                │
    │                                │                                │
 ```
@@ -537,7 +580,7 @@ Frontend                          Backend                          Database
    │                                │ Update answers                 │
    │                                ├───────────────────────────────>│
    │                                │<───────────────────────────────┤
-   │                                │ Re-evaluate conditional logic   │
+   │                                │ Re-evaluate conditional logic  │
    │                                ├───────────────────────────────>│
    │                                │<───────────────────────────────┤
    │                                │                                │
@@ -557,16 +600,15 @@ Frontend                          Backend                          Database
 
 ```python
 class Status(models.TextChoices):
-    IN_PROGRESS = 'IN_PROGRESS', 'In Progress'
-    COMPLETED = 'COMPLETED', 'Completed'
-    ABANDONED = 'ABANDONED', 'Abandoned'  # Future: timeout-based
+    IN_PROGRESS = 'in_progress', 'In Progress'
+    COMPLETED = 'completed', 'Completed'
 ```
 
 ### Progress Calculation
 
 **Formula**:
 ```
-sections_completed = COUNT(DISTINCT FieldAnswer.field.section WHERE response_id = ?)
+sections_completed = COUNT(DISTINCT FieldAnswer.field.section WHERE response_id = ? AND section is visible)
 total_sections = COUNT(Section WHERE survey_id = ? AND visible = true)
 sections_remaining = total_sections - sections_completed
 percentage = (sections_completed / total_sections) * 100
@@ -599,7 +641,7 @@ THEN Show Section "Customer Details"
 **Technical Implementation**:
 - `ConditionalRule` model stores rule definitions
 - `evaluate_rule()` method evaluates rule against current answers
-- Rules support: `equals`, `not_equals`, `contains`, `greater_than`, `less_than`
+- Rules support: `equals`, `not_equals`, `contains`, `greater_than`, `less_than`, `in`, `is_empty`, `is_not_empty`
 
 **Evaluation Flow**:
 1. Get all answers for survey response
@@ -704,17 +746,19 @@ ELSE Field "State" options = []
 1. **Required Field Missing**: "This field is required."
 2. **Invalid Type**: "Value 'abc' is not a valid number."
 3. **Invalid Option**: "Value 'invalid' is not a valid option."
-4. **Hidden Section**: "This section is not visible based on your previous answers."
-5. **Hidden Field**: "This field is not visible based on your previous answers."
-6. **Invalid Dependency**: "Selected option is not available based on your previous answers."
+4. **Hidden Section**: "Section 'X' is not available based on your previous answers."
+5. **Hidden Field**: "This field is not available based on your previous answers."
+6. **Invalid Dependency**: "Invalid option selected. Available options: X, Y, Z"
+7. **Field Not In Section**: "Field does not belong to this section."
 
 ### HTTP Status Codes
 
-- `200 OK`: Success (submit section, get section)
+- `200 OK`: Success (submit section, get section, finish)
 - `201 Created`: Success (start survey)
-- `400 Bad Request`: Validation error
-- `404 Not Found`: Session not found, section not found
-- `403 Forbidden`: Cannot access hidden section
+- `202 Accepted`: Async operation accepted (export, invitations)
+- `400 Bad Request`: Validation error or missing header
+- `403 Forbidden`: Permission denied or cannot access hidden section
+- `404 Not Found`: Session not found, section not found, survey not found
 
 ### Error Recovery
 
@@ -755,8 +799,9 @@ ELSE Field "State" options = []
 
 **Sensitive Fields**:
 - Fields marked `is_sensitive=True` are encrypted
-- Encryption key stored in environment variable
-- AES-256 encryption for field values
+- Encryption key stored in environment variable (`FIELD_ENCRYPTION_KEY`)
+- AES-256 encryption via Fernet for field values
+- Automatic encryption on save, decryption on read
 
 **IP Address & User Agent**:
 - Stored for analytics and fraud detection
@@ -765,13 +810,24 @@ ELSE Field "State" options = []
 
 ### Access Control
 
-**Current**: Anonymous access (no authentication required)
+**Public Endpoints** (No Authentication):
+- `POST /surveys/{id}/submissions/start/`
+- `POST /submissions/submit-section/`
+- `GET /submissions/current-section/`
+- `GET /submissions/sections/{id}/`
+- `POST /submissions/finish/`
 
-**Future Enhancements**:
-- Optional user authentication
-- Rate limiting per IP
-- Session expiration
-- CSRF protection for authenticated users
+**Protected Endpoints** (Authentication + RBAC):
+- `GET /surveys/{id}/responses/` - Requires `view_responses` permission
+- `GET /responses/{id}/` - Requires `view_responses` permission
+- `GET /surveys/{id}/responses/export/` - Requires `export_responses` permission
+- `GET /surveys/{id}/responses/analytics/` - Requires `view_analytics` permission
+- `POST /surveys/{id}/invitations/` - Requires `publish_survey` permission
+
+**Organization-Based Isolation**:
+- Users can only access responses for surveys in their organizations
+- Organization membership checked on every protected request
+- Raises `PermissionDenied` if user not in survey's organization
 
 ### Input Validation
 
@@ -787,6 +843,173 @@ ELSE Field "State" options = []
 
 ---
 
+## Response Management
+
+### Overview
+
+Response Management endpoints allow authenticated users with appropriate permissions to view, export, and analyze survey responses.
+
+### Endpoints
+
+#### List Responses
+**Endpoint**: `GET /api/v1/surveys/{survey_id}/responses/`
+
+**Permission**: `view_responses`
+
+**Query Parameters**:
+- `status`: Filter by status (`in_progress`, `completed`)
+- `start_date`: Filter responses started after this date (ISO format)
+- `end_date`: Filter responses started before this date (ISO format)
+- `ordering`: Order by field (`started_at`, `completed_at`, `-started_at`, `-completed_at`)
+
+**Response**:
+```json
+{
+  "count": 150,
+  "next": "http://api/surveys/{id}/responses/?page=2",
+  "previous": null,
+  "results": [
+    {
+      "id": "uuid",
+      "survey": "uuid",
+      "respondent": "user@example.com",
+      "status": "completed",
+      "started_at": "2024-01-15T10:00:00Z",
+      "completed_at": "2024-01-15T10:15:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### Get Single Response
+**Endpoint**: `GET /api/v1/responses/{response_id}/`
+
+**Permission**: `view_responses`
+
+**Response**:
+```json
+{
+  "id": "uuid",
+  "survey": {
+    "id": "uuid",
+    "title": "Survey Title"
+  },
+  "respondent": "user@example.com",
+  "status": "completed",
+  "started_at": "2024-01-15T10:00:00Z",
+  "completed_at": "2024-01-15T10:15:00Z",
+  "answers": [
+    {
+      "field_id": "uuid",
+      "field_label": "Question?",
+      "value": "Answer"
+    }
+  ]
+}
+```
+
+---
+
+#### Export Responses
+**Endpoint**: `GET /api/v1/surveys/{survey_id}/responses/export/`
+
+**Permission**: `export_responses`
+
+**Query Parameters**:
+- `format`: Export format (`csv` or `json`, default: `csv`)
+- `status`: Filter by status (optional)
+- `start_date`, `end_date`: Date range filter (optional)
+
+**Response** (202 Accepted):
+```json
+{
+  "message": "Export request received. The export file will be sent to user@example.com when ready.",
+  "email": "user@example.com",
+  "survey": "Customer Feedback",
+  "response_count": 150
+}
+```
+
+**Technical Details**:
+- Exports are processed asynchronously via Celery
+- Export file is sent to the user's email address
+- Sensitive fields are decrypted in export
+- CSV format: One row per response, columns for each field
+- JSON format: Pretty-printed JSON with metadata
+
+---
+
+#### Send Batch Invitations
+**Endpoint**: `POST /api/v1/surveys/{survey_id}/invitations/`
+
+**Permission**: `publish_survey`
+
+**Request**:
+```json
+{
+  "emails": ["user1@example.com", "user2@example.com"]
+}
+```
+
+**Response** (202 Accepted):
+```json
+{
+  "message": "Sending invitations to 50 recipients",
+  "survey": "Customer Feedback",
+  "recipient_count": 50
+}
+```
+
+**Technical Details**:
+- Emails are sent asynchronously via Celery
+- Duplicate emails are automatically removed
+- Creates `Invitation` records for audit trail
+- Maximum 1000 recipients per request
+- Invitations processed in batches of 50
+
+---
+
+## Analytics
+
+### Survey Analytics Endpoint
+**Endpoint**: `GET /api/v1/surveys/{survey_id}/responses/analytics/`
+
+**Permission**: `view_analytics`
+
+**Response**:
+```json
+{
+  "survey_id": "uuid",
+  "survey_title": "Customer Feedback",
+  "total_responses": 150,
+  "completed_responses": 120,
+  "in_progress_responses": 30,
+  "completion_rate": 80.0,
+  "average_completion_time_seconds": 342,
+  "last_response_at": "2024-01-15T10:30:00Z"
+}
+```
+
+**Technical Details**:
+- Results are cached for 60 seconds (configurable via `AnalyticsService.CACHE_TTL`)
+- Cache is invalidated when responses change
+- Average completion time calculated from completed responses only
+
+### Metrics Explained
+
+| Metric | Description |
+|--------|-------------|
+| `total_responses` | Total number of survey responses (all statuses) |
+| `completed_responses` | Number of responses with status `COMPLETED` |
+| `in_progress_responses` | Number of responses with status `IN_PROGRESS` |
+| `completion_rate` | Percentage of completed responses (0-100) |
+| `average_completion_time_seconds` | Average time from start to completion |
+| `last_response_at` | Timestamp of the most recent response |
+
+---
+
 ## Performance Considerations
 
 ### Database Optimization
@@ -796,10 +1019,9 @@ ELSE Field "State" options = []
 - `prefetch_related()` for reverse relations (Section → Fields)
 - Indexes on: `session_token`, `survey_id`, `section_id`, `field_id`
 
-**Caching Strategy** (Future):
-- Cache survey structure (sections, fields, rules)
-- Cache conditional rule evaluation results
-- Invalidate cache on survey updates
+**Caching Strategy**:
+- Analytics results cached for 60 seconds
+- Cache invalidation on response status changes
 
 ### Scalability
 
@@ -808,38 +1030,17 @@ ELSE Field "State" options = []
 - Can run multiple Django instances
 - Shared database (PostgreSQL)
 
-**Async Processing** (Future):
+**Async Processing**:
 - Celery tasks for:
-  - Conditional logic evaluation (complex surveys)
-  - Progress calculation (large surveys)
-  - Analytics aggregation
-
----
-
-## Future Enhancements
-
-### Planned Features
-
-1. **Session Expiration**: Auto-expire sessions after inactivity
-2. **Partial Save**: Auto-save answers as user types (debounced)
-3. **Offline Support**: Queue submissions when offline
-4. **Real-time Collaboration**: Multiple users editing same survey (admin)
-5. **Version Control**: Track survey structure changes
-6. **A/B Testing**: Multiple survey versions
-
-### Technical Debt
-
-1. **Query Optimization**: Add `select_related`/`prefetch_related` to all views
-2. **Caching**: Implement Redis caching for survey structure
-3. **Rate Limiting**: Add rate limiting middleware
-4. **Monitoring**: Add APM (Application Performance Monitoring)
-5. **Logging**: Structured logging for all operations
+  - Response exports (large datasets)
+  - Batch email invitations
+- Redis as message broker
 
 ---
 
 ## Appendix: API Reference Summary
 
-### Survey Submission Endpoints
+### Public Submission Endpoints
 
 | Endpoint | Method | Purpose | Auth |
 |----------|--------|---------|------|
@@ -847,10 +1048,32 @@ ELSE Field "State" options = []
 | `/submissions/current-section/` | GET | Get next section to complete | Session Token (Header) |
 | `/submissions/submit-section/` | POST | Save section answers | Session Token (Header) |
 | `/submissions/sections/{id}/` | GET | Get specific section (navigation) | Session Token (Header) |
-| `/submissions/survey-details/` | GET | Get survey overview | Session Token (Header) |
+| `/submissions/finish/` | POST | Mark survey as completed | Session Token (Header) |
+
+### Protected Response Management Endpoints
+
+| Endpoint | Method | Purpose | Permission |
+|----------|--------|---------|------------|
+| `/surveys/{id}/responses/` | GET | List responses for survey | `view_responses` |
+| `/responses/{id}/` | GET | Get single response details | `view_responses` |
+| `/surveys/{id}/responses/export/` | GET | Export responses (async) | `export_responses` |
+| `/surveys/{id}/responses/analytics/` | GET | Get survey analytics | `view_analytics` |
+| `/surveys/{id}/invitations/` | POST | Send batch invitations | `publish_survey` |
 
 **Base URLs**:
+- Public submission: `/api/v1/submissions/`
 - Start endpoint: `/api/v1/surveys/{survey_id}/submissions/start/`
-- Other endpoints: `/api/v1/submissions/`
+- Response management: `/api/v1/surveys/{survey_id}/responses/`
 
-**Session Token Header**: `X-Session-Token: uuid` (required for all endpoints except start)
+**Session Token Header**: `X-Session-Token: uuid` (required for public submission endpoints except start)
+
+**Authentication**: JWT Bearer token (required for protected endpoints)
+
+---
+
+## Version History
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| 1.0 | 2024-01-01 | - | Initial documentation |
+| 2.0 | 2026-01-05 | - | Added finish endpoint, response management, analytics, invitations, organization-based access control |
