@@ -1,5 +1,5 @@
 import uuid
-from rest_framework import viewsets, status, serializers
+from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -629,7 +629,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         return request.META.get('REMOTE_ADDR')
 
 
-class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
+class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     ViewSet for viewing survey responses (requires RBAC permissions).
     
@@ -875,9 +875,9 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             404: {'description': 'Survey not found'}
         }
     )
-    @action(detail=False, methods=['get'], url_path='export')
     def export_responses(self, request, survey_pk=None):
         """Export responses as CSV or JSON (always async, sent via email)."""
+        
         # Get survey_pk from URL or kwargs
         survey_pk = survey_pk or self.kwargs.get('survey_pk')
         if not survey_pk:
@@ -960,7 +960,6 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             404: {'description': 'Survey not found'}
         }
     )
-    @action(detail=False, methods=['get'], url_path='analytics')
     def analytics(self, request, survey_pk=None):
         """Get analytics for a specific survey."""
         survey_pk = survey_pk or self.kwargs.get('survey_pk')
@@ -1032,7 +1031,6 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             404: {'description': 'Survey not found'}
         }
     )
-    @action(detail=False, methods=['post'], url_path='invitations', permission_classes=[IsAuthenticated, CanPublishSurvey])
     def send_invitations(self, request, survey_pk=None):
         """Send batch survey invitations."""
         survey_pk = survey_pk or self.kwargs.get('survey_pk')

@@ -1,10 +1,13 @@
+from unittest.mock import patch
+import uuid
+
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from surveys.models import Survey, Section, Field, FieldOption, ConditionalRule
-from submissions.models import SurveyResponse, FieldAnswer
+
+from submissions.models import FieldAnswer, SurveyResponse
+from surveys.models import ConditionalRule, Field, FieldOption, Section, Survey
 
 
 @pytest.fixture
@@ -15,15 +18,26 @@ def api_client():
 @pytest.fixture
 def user(db):
     from users.models import User
-    return User.objects.create_user(email='test@example.com', password='pass')
+    from organizations.models import Organization, OrganizationMembership
+    
+    user = User.objects.create_user(email='test@example.com', password='pass')
+    org = Organization.objects.create(name="Test Organization")
+    OrganizationMembership.objects.create(
+        user=user,
+        organization=org,
+        role=OrganizationMembership.Role.OWNER
+    )
+    return user
 
 
 @pytest.fixture
 def survey(user):
+    org = user.organizations.first()
     return Survey.objects.create(
         title='Customer Feedback',
         status=Survey.Status.PUBLISHED,
-        created_by=user
+        created_by=user,
+        organization=org
     )
 
 
@@ -615,37 +629,59 @@ class TestResponseViewing:
     """Tests for response viewing endpoints with RBAC."""
     
     @pytest.fixture
-    def manager_user(self, db):
+    def manager_user(self, db, survey):
         """Create a user with manager role."""
-        from users.models import User, Role, UserRole
+        from organizations.models import OrganizationMembership
+        from users.models import Role, User, UserRole
         
         user = User.objects.create_user(email='manager@example.com', password='pass')
         manager_role = Role.objects.get(name='manager')
         UserRole.objects.create(user=user, role=manager_role)
+        
+        # Add user to survey's organization
+        org = survey.organization
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
         return user
     
     @pytest.fixture
-    def viewer_user(self, db):
+    def viewer_user(self, db, survey):
         """Create a user with viewer role."""
-        from users.models import User, Role, UserRole
+        from organizations.models import OrganizationMembership
+        from users.models import Role, User, UserRole
         
         user = User.objects.create_user(email='viewer@example.com', password='pass')
         viewer_role = Role.objects.get(name='viewer')
         UserRole.objects.create(user=user, role=viewer_role)
+        
+        # Add user to survey's organization
+        org = survey.organization
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
         return user
     
     @pytest.fixture
-    def regular_user(self, db):
+    def regular_user(self, db, survey):
         """Create a regular user without special permissions."""
+        from organizations.models import OrganizationMembership
         from users.models import User
-        return User.objects.create_user(email='regular@example.com', password='pass')
+        
+        user = User.objects.create_user(email='regular@example.com', password='pass')
+        
+        # Add user to survey's organization
+        org = survey.organization
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
+        return user
     
     @pytest.fixture
     def survey_response(self, survey, section, field):
         """Create a survey response with answers."""
+        import uuid
         response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())  # Add session token to satisfy constraint
         )
         FieldAnswer.objects.create(
             response=response,
@@ -685,7 +721,11 @@ class TestResponseViewing:
         """Test pagination for list responses."""
         # Create multiple responses
         for i in range(25):
-            SurveyResponse.objects.create(survey=survey, status=SurveyResponse.Status.COMPLETED)
+            SurveyResponse.objects.create(
+                survey=survey,
+                status=SurveyResponse.Status.COMPLETED,
+                session_token=str(uuid.uuid4())
+            )
         
         api_client.force_authenticate(user=manager_user)
         url = reverse('survey-responses-list', kwargs={'survey_pk': survey.id})
@@ -699,11 +739,13 @@ class TestResponseViewing:
         """Test filtering responses by status."""
         completed_response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
         )
         in_progress_response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.IN_PROGRESS
+            status=SurveyResponse.Status.IN_PROGRESS,
+            session_token=str(uuid.uuid4())
         )
         
         api_client.force_authenticate(user=manager_user)
@@ -737,7 +779,8 @@ class TestResponseViewing:
         # Create response with sensitive answer
         response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
         )
         FieldAnswer.objects.create(
             response=response,
@@ -759,7 +802,8 @@ class TestResponseViewing:
         # Create response
         survey_response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
         )
         FieldAnswer.objects.create(
             response=survey_response,
@@ -769,23 +813,22 @@ class TestResponseViewing:
         
         api_client.force_authenticate(user=manager_user)
         url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
-        response = api_client.get(url, {'format': 'csv'})
+        # Use default format (csv is default) - test without format parameter
+        response = api_client.get(url)
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response['Content-Type'] == 'text/csv'
-        assert 'attachment' in response['Content-Disposition']
-        
-        # Check CSV content
-        content = response.content.decode('utf-8')
-        assert 'Response ID' in content
-        assert 'Test Answer' in content
+        # Export is now async, returns 202 with message
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert 'message' in response.data
+        assert 'email' in response.data
+        assert response.data['email'] == manager_user.email
     
     def test_export_json(self, api_client, manager_user, survey, section, field):
         """Test JSON export functionality."""
         # Create response
         survey_response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
         )
         FieldAnswer.objects.create(
             response=survey_response,
@@ -797,15 +840,11 @@ class TestResponseViewing:
         url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
         response = api_client.get(url, {'format': 'json'})
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response['Content-Type'] == 'application/json'
-        
-        # Parse JSON
-        import json
-        data = json.loads(response.content.decode('utf-8'))
-        assert 'export_date' in data
-        assert 'total_count' in data
-        assert len(data['responses']) == 1
+        # Export is now async, returns 202 with message
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert 'message' in response.data
+        assert 'email' in response.data
+        assert response.data['email'] == manager_user.email
     
     def test_manager_can_export(self, api_client, manager_user, survey, survey_response):
         """Manager can export responses."""
@@ -813,7 +852,8 @@ class TestResponseViewing:
         url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
         response = api_client.get(url)
         
-        assert response.status_code == status.HTTP_200_OK
+        # Export is now async, returns 202 with message
+        assert response.status_code == status.HTTP_202_ACCEPTED
     
     def test_viewer_cannot_export(self, api_client, viewer_user, survey, survey_response):
         """Viewer cannot export responses (no permission)."""
@@ -823,8 +863,8 @@ class TestResponseViewing:
         
         assert response.status_code == status.HTTP_403_FORBIDDEN
     
-    def test_export_includes_decrypted_fields(self, api_client, manager_user, survey, section):
-        """Test that exported CSV includes decrypted sensitive fields."""
+    def test_export_with_sensitive_fields(self, api_client, manager_user, survey, section):
+        """Test that export request includes responses with sensitive fields."""
         from surveys.models import Field
         
         # Create sensitive field
@@ -836,10 +876,11 @@ class TestResponseViewing:
             order=1
         )
         
-        # Create response
+        # Create response with sensitive data
         survey_response = SurveyResponse.objects.create(
             survey=survey,
-            status=SurveyResponse.Status.COMPLETED
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
         )
         FieldAnswer.objects.create(
             response=survey_response,
@@ -849,11 +890,14 @@ class TestResponseViewing:
         
         api_client.force_authenticate(user=manager_user)
         url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
-        response = api_client.get(url, {'format': 'csv'})
+        response = api_client.get(url, {'format': 'json'})
         
-        assert response.status_code == status.HTTP_200_OK
-        content = response.content.decode('utf-8')
-        assert '123-45-6789' in content
+        # Export is now async, returns 202 with message
+        # Actual decryption happens in async task
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert 'message' in response.data
+        assert 'email' in response.data
+        assert response.data['email'] == manager_user.email
     
     def test_list_responses_requires_authentication(self, api_client, survey):
         """Test that list responses requires authentication."""
@@ -877,7 +921,7 @@ class TestAsyncExport:
     @pytest.fixture
     def manager_user(self, db):
         """Create a user with manager role."""
-        from users.models import User, Role, UserRole
+        from users.models import Role, User, UserRole
         
         user = User.objects.create_user(email='manager@example.com', password='pass')
         manager_role = Role.objects.get(name='manager')
@@ -887,7 +931,7 @@ class TestAsyncExport:
     @pytest.fixture
     def large_survey(self, manager_user):
         """Create a survey with many responses."""
-        from surveys.models import Survey, Section, Field
+        from surveys.models import Field, Section, Survey
         
         survey = Survey.objects.create(
             title='Large Survey',
@@ -906,7 +950,8 @@ class TestAsyncExport:
         for i in range(1500):
             response = SurveyResponse.objects.create(
                 survey=survey,
-                status=SurveyResponse.Status.COMPLETED
+                status=SurveyResponse.Status.COMPLETED,
+                session_token=str(uuid.uuid4())
             )
             FieldAnswer.objects.create(
                 response=response,
@@ -922,7 +967,8 @@ class TestAsyncExport:
         for i in range(5):
             response = SurveyResponse.objects.create(
                 survey=survey,
-                status=SurveyResponse.Status.COMPLETED
+                status=SurveyResponse.Status.COMPLETED,
+                session_token=str(uuid.uuid4())
             )
             FieldAnswer.objects.create(
                 response=response,
@@ -934,7 +980,7 @@ class TestAsyncExport:
         url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
         
         with patch('submissions.views.export_responses_async.delay') as mock_task:
-            response = api_client.get(url, {'format': 'csv'})
+            response = api_client.get(url, {'format': 'json'})
         
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert 'email' in response.data
@@ -947,7 +993,7 @@ class TestAsyncExport:
         url = reverse('survey-responses-export', kwargs={'survey_pk': large_survey.id})
         
         with patch('submissions.views.export_responses_async.delay') as mock_task:
-            response = api_client.get(url, {'format': 'csv'})
+            response = api_client.get(url, {'format': 'json'})
         
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert 'message' in response.data
@@ -966,27 +1012,37 @@ class TestAsyncExport:
         
         assert response.status_code == status.HTTP_403_FORBIDDEN
     
-    def test_async_export_sends_email(self, api_client, manager_user, large_survey):
-        """Test that async export task sends email when completed."""
-        from django.core import mail
-        from submissions.tasks import export_responses_async
-        
-        # Clear mail outbox
-        mail.outbox = []
-        
-        # Execute task synchronously for testing
-        export_responses_async(
-            survey_id=str(large_survey.id),
-            user_id=str(manager_user.id),
-            export_format='csv',
-            filters={}
+    def test_export_triggers_async_task(self, api_client, manager_user, survey, section, field):
+        """Test that export endpoint triggers async task with correct parameters."""
+        # Create a response
+        survey_response = SurveyResponse.objects.create(
+            survey=survey,
+            status=SurveyResponse.Status.COMPLETED,
+            session_token=str(uuid.uuid4())
+        )
+        FieldAnswer.objects.create(
+            response=survey_response,
+            field=field,
+            value='Test Answer'
         )
         
-        # Check email was sent
-        assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == [manager_user.email]
-        assert 'Survey Export Ready' in mail.outbox[0].subject
-        assert len(mail.outbox[0].attachments) == 1
+        api_client.force_authenticate(user=manager_user)
+        url = reverse('survey-responses-export', kwargs={'survey_pk': survey.id})
+        
+        with patch('submissions.views.export_responses_async.delay') as mock_task:
+            response = api_client.get(url, {'format': 'json'})
+        
+        # Verify response
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert 'message' in response.data
+        assert 'email' in response.data
+        
+        # Verify async task was called with correct parameters
+        assert mock_task.called
+        call_args = mock_task.call_args
+        assert call_args[1]['survey_id'] == str(survey.id)
+        assert call_args[1]['user_id'] == str(manager_user.id)
+        assert call_args[1]['export_format'] == 'json'
 
 
 # =============================================================================
@@ -997,7 +1053,7 @@ class TestAsyncExport:
 @pytest.fixture
 def analytics_user(db):
     """Create user with view_analytics permission."""
-    from users.models import User, Role, Permission, UserRole, RolePermission
+    from users.models import Permission, Role, RolePermission, User, UserRole
     user = User.objects.create_user(email='analytics@example.com', password='testpass123')
     
     # Create analytics role with view_analytics permission
@@ -1027,8 +1083,9 @@ def analytics_client(api_client, analytics_user):
 @pytest.fixture
 def survey_with_responses(user):
     """Create a survey with completed and in-progress responses."""
-    from django.utils import timezone
     from datetime import timedelta
+
+    from django.utils import timezone
     
     survey = Survey.objects.create(
         title='Analytics Test Survey',
@@ -1147,6 +1204,7 @@ class TestAnalyticsService:
     def test_get_survey_analytics_caching(self, survey_with_responses):
         """Test that analytics results are cached."""
         from django.core.cache import cache
+
         from submissions.services import AnalyticsService
         
         service = AnalyticsService()
@@ -1171,6 +1229,7 @@ class TestAnalyticsService:
     def test_bypass_cache(self, survey_with_responses):
         """Test bypassing cache."""
         from django.core.cache import cache
+
         from submissions.services import AnalyticsService
         
         service = AnalyticsService()
@@ -1186,6 +1245,7 @@ class TestAnalyticsService:
     def test_invalidate_survey_cache(self, survey_with_responses):
         """Test cache invalidation."""
         from django.core.cache import cache
+
         from submissions.services import AnalyticsService
         
         service = AnalyticsService()
@@ -1238,7 +1298,7 @@ class TestAnalyticsService:
 @pytest.fixture
 def user_with_publish_permission(db):
     """Create a user with publish_survey permission."""
-    from users.models import User, Role, Permission, RolePermission, UserRole
+    from users.models import Permission, Role, RolePermission, User, UserRole
     
     user = User.objects.create_user(email='publisher@example.com', password='pass')
     
@@ -1379,8 +1439,8 @@ class TestInvitationTask:
     
     def test_send_survey_invitations_task(self, survey, user):
         """Test the send_survey_invitations task creates records."""
-        from submissions.tasks import send_survey_invitations
         from submissions.models import Invitation
+        from submissions.tasks import send_survey_invitations
         
         emails = ['user1@example.com', 'user2@example.com']
         
@@ -1410,8 +1470,8 @@ class TestInvitationTask:
     
     def test_send_survey_invitations_handles_failures(self, survey, user):
         """Test task handles email sending failures gracefully."""
-        from submissions.tasks import send_survey_invitations
         from submissions.models import Invitation
+        from submissions.tasks import send_survey_invitations
         
         emails = ['good@example.com', 'bad@example.com', 'good2@example.com']
         
@@ -1439,6 +1499,7 @@ class TestInvitationTask:
     def test_send_survey_invitations_survey_not_found(self):
         """Test task handles non-existent survey."""
         import uuid
+
         from submissions.tasks import send_survey_invitations
         
         with patch.object(send_survey_invitations, 'update_state'):

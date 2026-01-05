@@ -27,6 +27,13 @@ class Survey(models.Model):
         null=True,
         related_name='surveys'
     )
+    organization = models.ForeignKey(
+        'organizations.Organization',
+        on_delete=models.CASCADE,
+        related_name='surveys',
+        null=True,  # Nullable for migration purposes
+        blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -36,6 +43,7 @@ class Survey(models.Model):
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['created_by']),
+            models.Index(fields=['organization']),
         ]
 
     def __str__(self):

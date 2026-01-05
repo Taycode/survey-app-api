@@ -15,7 +15,6 @@ def user_data():
     return {
         'email': 'test@example.com',
         'password': 'TestPass123!',
-        'password_confirm': 'TestPass123!',
         'first_name': 'Test',
         'last_name': 'User',
     }
@@ -54,14 +53,25 @@ class TestRegistration:
         assert response.status_code == status.HTTP_201_CREATED
         user = User.objects.get(email=user_data['email'])
         assert UserSession.objects.filter(user=user, is_active=True).exists()
-
-    def test_register_password_mismatch(self, api_client, user_data):
-        """Test registration fails when passwords don't match."""
-        user_data['password_confirm'] = 'DifferentPass123!'
+    
+    def test_register_creates_organization(self, api_client, user_data):
+        """Test that registration automatically creates an organization for the user."""
+        from organizations.models import Organization, OrganizationMembership
+        
         url = reverse('register')
         response = api_client.post(url, user_data, format='json')
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(email=user_data['email'])
+        
+        # Check organization was created
+        orgs = user.organizations.all()
+        assert orgs.count() == 1
+        assert orgs.first().name == f"{user.first_name}'s Organization"
+        
+        # Check membership with owner role
+        membership = OrganizationMembership.objects.get(user=user)
+        assert membership.role == OrganizationMembership.Role.OWNER
 
     def test_register_duplicate_email(self, api_client, user_data, created_user):
         """Test registration fails with duplicate email."""

@@ -112,13 +112,21 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete']
 
     def get_queryset(self):
-        """Return surveys based on user permissions."""
+        """Return surveys based on user permissions and organization membership."""
         user = self.request.user
-        # If user has view_responses permission, show all surveys
-        if user_has_permission(user, 'view_responses'):
-            return Survey.objects.all()
-        # Otherwise, show only surveys they created
-        return Survey.objects.filter(created_by=user)
+        
+        # Get all organizations user belongs to
+        user_orgs = user.organizations.all()
+        
+        # Filter surveys in those organizations
+        queryset = Survey.objects.filter(organization__in=user_orgs)
+        
+        # Apply additional filters based on permissions
+        if not user_has_permission(user, 'view_responses'):
+            # If user doesn't have view_responses permission, only show their own surveys
+            queryset = queryset.filter(created_by=user)
+        
+        return queryset
 
     def get_permissions(self):
         """Return appropriate permission classes based on action."""
@@ -128,6 +136,10 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
             return [IsAuthenticated(), CanEditSurvey()]
         elif self.action == 'destroy':
             return [IsAuthenticated(), CanDeleteSurvey()]
+        elif self.action == 'publish':
+            return [IsAuthenticated(), CanPublishSurvey()]
+        elif self.action == 'close':
+            return [IsAuthenticated(), CanEditSurvey()]
         elif self.action == 'retrieve':
             # Custom check in has_object_permission
             return [IsAuthenticated()]
@@ -147,16 +159,41 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
         survey = self.get_object()
         user = request.user
         
-        # User has view_responses permission
-        if user_has_permission(user, 'view_responses'):
-            return super().retrieve(request, *args, **kwargs)
+        # Check if user is a member of the survey's organization
+        if not survey.organization.members.filter(id=user.id).exists():
+            return Response(
+                {'detail': 'You do not have permission to view this survey.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
-        # User is the creator
-        if survey.created_by == user:
+        # User has view_responses permission or is the creator
+        if user_has_permission(user, 'view_responses') or survey.created_by == user:
             return super().retrieve(request, *args, **kwargs)
         
         # User doesn't have permission
-        return Response({'detail': 'You do not have permission to view this survey.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            {'detail': 'You do not have permission to view this survey.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    def perform_create(self, serializer):
+        """Set organization when creating survey."""
+        organization_id = self.request.data.get('organization')
+        
+        if not organization_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'organization': 'This field is required.'})
+        
+        # Validate user is member of this org
+        organization = get_object_or_404(
+            self.request.user.organizations,
+            id=organization_id
+        )
+        
+        instance = serializer.save(created_by=self.request.user, organization=organization)
+        # Manually log the creation since we override perform_create
+        from audit.models import AuditLog
+        self._log_action(AuditLog.Action.CREATED, instance)
 
     @extend_schema(
         tags=["Surveys"],
