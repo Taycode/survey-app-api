@@ -239,6 +239,39 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
         return Response({'detail': 'Survey closed successfully'})
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Survey Sections"],
+        summary="List sections",
+        description="Retrieve all sections for a survey, ordered by their position."
+    ),
+    create=extend_schema(
+        tags=["Survey Sections"],
+        summary="Create section",
+        description="""
+        Add a new section to a survey.
+        
+        **Required fields:** title, order
+        
+        **Note:** The `order` field must be unique within the survey.
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Survey Sections"],
+        summary="Get section details",
+        description="Retrieve a specific section with all its fields."
+    ),
+    partial_update=extend_schema(
+        tags=["Survey Sections"],
+        summary="Update section",
+        description="Update section title, description, or order."
+    ),
+    destroy=extend_schema(
+        tags=["Survey Sections"],
+        summary="Delete section",
+        description="Delete a section and all its fields."
+    ),
+)
 class SectionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing sections within a survey."""
     permission_classes = [IsAuthenticated, CanEditSurvey]
@@ -281,6 +314,41 @@ class SectionViewSet(viewsets.ModelViewSet):
         serializer.save(survey=survey)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Survey Fields"],
+        summary="List fields",
+        description="Retrieve all fields for a section, ordered by their position."
+    ),
+    create=extend_schema(
+        tags=["Survey Fields"],
+        summary="Create field",
+        description="""
+        Add a new field (question) to a section.
+        
+        **Required fields:** label, field_type, order
+        
+        **Field types:** text, number, date, dropdown, checkbox, radio
+        
+        **For dropdown/checkbox/radio:** Add options via the field options endpoint after creating the field.
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Survey Fields"],
+        summary="Get field details",
+        description="Retrieve a specific field with all its options."
+    ),
+    partial_update=extend_schema(
+        tags=["Survey Fields"],
+        summary="Update field",
+        description="Update field label, type, required status, or order."
+    ),
+    destroy=extend_schema(
+        tags=["Survey Fields"],
+        summary="Delete field",
+        description="Delete a field and all its options."
+    ),
+)
 class FieldViewSet(viewsets.ModelViewSet):
     """ViewSet for managing fields within a section."""
     permission_classes = [IsAuthenticated, CanEditSurvey]
@@ -327,6 +395,41 @@ class FieldViewSet(viewsets.ModelViewSet):
         serializer.save(section=section)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Field Options"],
+        summary="List field options",
+        description="Retrieve all options for a dropdown, checkbox, or radio field."
+    ),
+    create=extend_schema(
+        tags=["Field Options"],
+        summary="Create field option",
+        description="""
+        Add a new option to a dropdown, checkbox, or radio field.
+        
+        **Required fields:** label, value, order
+        
+        **Example:** For a "Yes/No" radio field:
+        - Option 1: label="Yes", value="yes", order=1
+        - Option 2: label="No", value="no", order=2
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Field Options"],
+        summary="Get option details",
+        description="Retrieve a specific field option."
+    ),
+    partial_update=extend_schema(
+        tags=["Field Options"],
+        summary="Update option",
+        description="Update option label, value, or order."
+    ),
+    destroy=extend_schema(
+        tags=["Field Options"],
+        summary="Delete option",
+        description="Delete a field option."
+    ),
+)
 class FieldOptionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing options within a field."""
     permission_classes = [IsAuthenticated, CanEditSurvey]
@@ -376,6 +479,45 @@ class FieldOptionViewSet(viewsets.ModelViewSet):
         serializer.save(field=field)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Conditional Logic"],
+        summary="List conditional rules",
+        description="Retrieve all conditional rules for a survey."
+    ),
+    create=extend_schema(
+        tags=["Conditional Logic"],
+        summary="Create conditional rule",
+        description="""
+        Create a rule to show/hide sections or fields based on answers.
+        
+        **Required fields:** target_type, target_id, source_field, operator, action
+        
+        **Target types:** section, field
+        
+        **Operators:** equals, not_equals, greater_than, less_than, contains, in, is_empty, is_not_empty
+        
+        **Actions:** show, hide
+        
+        **Example:** Show section 2 when field "employed" equals "yes"
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Conditional Logic"],
+        summary="Get rule details",
+        description="Retrieve a specific conditional rule."
+    ),
+    partial_update=extend_schema(
+        tags=["Conditional Logic"],
+        summary="Update rule",
+        description="Update conditional rule parameters."
+    ),
+    destroy=extend_schema(
+        tags=["Conditional Logic"],
+        summary="Delete rule",
+        description="Delete a conditional rule."
+    ),
+)
 class ConditionalRuleViewSet(viewsets.ModelViewSet):
     """ViewSet for managing conditional rules."""
     permission_classes = [IsAuthenticated, CanEditSurvey]
@@ -418,6 +560,41 @@ class ConditionalRuleViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Field Dependencies"],
+        summary="List field dependencies",
+        description="Retrieve all field dependencies for a survey."
+    ),
+    create=extend_schema(
+        tags=["Field Dependencies"],
+        summary="Create field dependency",
+        description="""
+        Create a dependency that changes available options in a field based on another field's answer.
+        
+        **Required fields:** dependent_field, source_field, source_value, dependent_options
+        
+        **Example:** When "country" = "USA", show American states in the "state" dropdown.
+        
+        **dependent_options format:** `[{"label": "California", "value": "CA"}, {"label": "Texas", "value": "TX"}]`
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Field Dependencies"],
+        summary="Get dependency details",
+        description="Retrieve a specific field dependency."
+    ),
+    partial_update=extend_schema(
+        tags=["Field Dependencies"],
+        summary="Update dependency",
+        description="Update field dependency parameters."
+    ),
+    destroy=extend_schema(
+        tags=["Field Dependencies"],
+        summary="Delete dependency",
+        description="Delete a field dependency."
+    ),
+)
 class FieldDependencyViewSet(viewsets.ModelViewSet):
     """ViewSet for managing field dependencies."""
     permission_classes = [IsAuthenticated, CanEditSurvey]

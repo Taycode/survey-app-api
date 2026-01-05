@@ -28,6 +28,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from organizations.models import Organization, OrganizationMembership
+        from users.models import Role, UserRole
         
         # Create user
         user = User.objects.create_user(**validated_data)
@@ -37,12 +38,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             name=f"{user.first_name}'s Organization"
         )
         
-        # Make user the owner
+        # Make user the owner of the organization
         OrganizationMembership.objects.create(
             user=user,
             organization=organization,
             role=OrganizationMembership.Role.OWNER
         )
+        
+        # Assign admin role to user (gives all permissions)
+        try:
+            admin_role = Role.objects.get(name='admin')
+            UserRole.objects.create(user=user, role=admin_role)
+        except Role.DoesNotExist:
+            pass  # Role not seeded yet, user can be assigned role later
         
         return user
 

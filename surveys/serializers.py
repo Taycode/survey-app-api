@@ -84,10 +84,15 @@ class SurveyListSerializer(serializers.ModelSerializer):
     """Serializer for listing surveys (minimal data)."""
     sections_count = serializers.SerializerMethodField()
     responses_count = serializers.SerializerMethodField()
+    organization_id = serializers.UUIDField(source='organization.id', read_only=True)
+    organization_name = serializers.CharField(source='organization.name', read_only=True)
 
     class Meta:
         model = Survey
-        fields = ['id', 'title', 'description', 'status', 'created_at', 'updated_at', 'sections_count', 'responses_count']
+        fields = [
+            'id', 'title', 'description', 'status', 'created_at', 'updated_at',
+            'organization_id', 'organization_name', 'sections_count', 'responses_count'
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     @extend_schema_field(serializers.IntegerField)
@@ -104,11 +109,14 @@ class SurveyDetailSerializer(serializers.ModelSerializer):
     sections = SectionSerializer(many=True, read_only=True)
     conditional_rules = serializers.SerializerMethodField()
     field_dependencies = serializers.SerializerMethodField()
+    organization_id = serializers.UUIDField(source='organization.id', read_only=True)
+    organization_name = serializers.CharField(source='organization.name', read_only=True)
 
     class Meta:
         model = Survey
         fields = [
             'id', 'title', 'description', 'status', 'created_at', 'updated_at',
+            'organization_id', 'organization_name',
             'sections', 'conditional_rules', 'field_dependencies'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -133,7 +141,7 @@ class SurveyCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Survey
-        fields = ['id', 'title', 'description']
+        fields = ['id', 'title', 'description', 'organization']
         read_only_fields = ['id']
 
     def create(self, validated_data):
