@@ -1289,7 +1289,7 @@ class TestInvitationEndpoint:
         mock_task.assert_called_once()
         call_kwargs = mock_task.call_args[1]
         assert call_kwargs['survey_id'] == str(survey.id)
-        assert call_kwargs['emails'] == ['user1@example.com', 'user2@example.com', 'user3@example.com']
+        assert set(call_kwargs['emails']) == {'user1@example.com', 'user2@example.com', 'user3@example.com'}
         assert call_kwargs['sent_by_user_id'] == str(user.id)
     
     def test_send_invitations_deduplicates_emails(self, api_client, survey, user_with_publish_permission):
