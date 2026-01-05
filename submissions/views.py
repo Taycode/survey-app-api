@@ -3,6 +3,7 @@ from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -37,6 +38,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
     2. Submit Section -> Save answers using session_token
     3. Finish Survey -> Complete submission
     """
+    authentication_classes = []  # No authentication for public survey submissions
     permission_classes = [AllowAny]
 
     def get_serializer_class(self):
@@ -513,7 +515,8 @@ class SubmissionViewSet(viewsets.GenericViewSet):
             400: {'description': 'Missing X-Session-Token header'},
             404: {'description': 'Session or section not found'},
             403: {'description': 'Section is hidden'}
-        }
+        },
+        auth=[],  # No authentication required for public submission endpoints
     )
     @action(detail=False, methods=['get'], url_path='sections/(?P<section_id>[^/.]+)/')
     def get_section(self, request, section_id=None):
@@ -642,16 +645,21 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
     serializer_class = SurveyResponseListSerializer
     
     def get_queryset(self):
-        """Return queryset based on user permissions."""
+        """Return queryset based on user permissions, filtered by user's organizations."""
         user = self.request.user
         
-        # Users with view_responses permission see all responses
+        # Get user's organization IDs
+        user_org_ids = user.organizations.values_list('id', flat=True)
+        
+        # Users with view_responses permission see responses in their organizations
         if user_has_permission(user, 'view_responses'):
-            return SurveyResponse.objects.select_related(
+            return SurveyResponse.objects.filter(
+                survey__organization__in=user_org_ids
+            ).select_related(
                 'survey', 'respondent'
             ).prefetch_related(
                 'answers__field'
-            ).all()
+            )
         
         # Otherwise, no access (shouldn't reach here due to permission check)
         return SurveyResponse.objects.none()
@@ -671,6 +679,20 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
         if self.action == 'send_invitations':
             return [IsAuthenticated(), CanPublishSurvey()]
         return [IsAuthenticated(), CanViewResponses()]
+    
+    def _verify_survey_access(self, survey_pk):
+        """
+        Verify user has access to survey's organization.
+        
+        Returns the survey if access is granted, raises PermissionDenied otherwise.
+        """
+        user = self.request.user
+        survey = get_object_or_404(Survey, id=survey_pk)
+        
+        if not survey.organization or not survey.organization.members.filter(id=user.id).exists():
+            raise PermissionDenied("You don't have access to this survey's organization")
+        
+        return survey
     
     @extend_schema(
         tags=["Response Management"],
@@ -742,8 +764,8 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
         if not survey_pk:
             return Response({'detail': 'Survey ID required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get survey
-        survey = get_object_or_404(Survey, id=survey_pk)
+        # Verify user has access to survey's organization
+        survey = self._verify_survey_access(survey_pk)
         
         # Filter by survey
         queryset = self.get_queryset().filter(survey=survey)
@@ -883,8 +905,8 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
         if not survey_pk:
             return Response({'detail': 'Survey ID required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get survey
-        survey = get_object_or_404(Survey, id=survey_pk)
+        # Verify user has access to survey's organization
+        survey = self._verify_survey_access(survey_pk)
         
         # Get queryset
         queryset = self.get_queryset().filter(survey=survey)
@@ -966,8 +988,8 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
         if not survey_pk:
             return Response({'detail': 'Survey ID required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Verify survey exists
-        get_object_or_404(Survey, id=survey_pk)
+        # Verify user has access to survey's organization
+        self._verify_survey_access(survey_pk)
         
         # Get analytics
         service = AnalyticsService()
@@ -1037,8 +1059,8 @@ class ResponseViewSet(AuditLogMixin, mixins.ListModelMixin, mixins.RetrieveModel
         if not survey_pk:
             return Response({'detail': 'Survey ID required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Verify survey exists
-        survey = get_object_or_404(Survey, id=survey_pk)
+        # Verify user has access to survey's organization
+        survey = self._verify_survey_access(survey_pk)
         
         # Validate request
         serializer = InvitationRequestSerializer(data=request.data)

@@ -68,6 +68,7 @@ def get_client_ip(request):
 )
 class RegisterView(generics.CreateAPIView):
     """User registration endpoint."""
+    authentication_classes = []  # No authentication for registration
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
 
@@ -140,6 +141,7 @@ class RegisterView(generics.CreateAPIView):
 )
 class LoginView(APIView):
     """User login endpoint."""
+    authentication_classes = []  # No authentication for login
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -253,6 +255,7 @@ class LogoutView(APIView):
 )
 class RefreshTokenView(APIView):
     """Refresh access token endpoint."""
+    authentication_classes = []  # No authentication for token refresh
     permission_classes = [AllowAny]
 
     def post(self, request):

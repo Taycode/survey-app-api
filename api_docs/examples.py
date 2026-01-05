@@ -296,6 +296,466 @@ class SurveySubmissionClient:
 # Example Workflows
 # ============================================================================
 
+def complete_survey_workflow():
+    """
+    Complete End-to-End Survey Workflow
+    
+    This example demonstrates:
+    1. User registration/login
+    2. Creating a survey with multiple sections
+    3. Adding various field types (text, dropdown, radio)
+    4. Adding conditional rules (show/hide based on answers)
+    5. Publishing the survey
+    6. Anonymous user submitting a response
+    7. Viewing analytics as the survey owner
+    """
+    print("\n" + "="*70)
+    print("COMPLETE SURVEY WORKFLOW - End-to-End Example")
+    print("="*70)
+    
+    # =========================================================================
+    # PHASE 1: AUTHENTICATION
+    # =========================================================================
+    print("\n" + "-"*70)
+    print("PHASE 1: USER AUTHENTICATION")
+    print("-"*70)
+    
+    admin_client = SurveyAPIClient(BASE_URL)
+    
+    print("\n[1.1] Registering/Logging in user...")
+    try:
+        login_result = admin_client.login(USER_EMAIL, USER_PASSWORD)
+        print(f"      ✓ Logged in as: {login_result['user']['email']}")
+    except requests.exceptions.HTTPError:
+        print("      → User doesn't exist, registering...")
+        register_result = admin_client.register(
+            email=USER_EMAIL,
+            password=USER_PASSWORD,
+            first_name="Survey",
+            last_name="Admin"
+        )
+        print(f"      ✓ Registered: {register_result['user']['email']}")
+    
+    print("\n[1.2] Fetching user profile...")
+    profile = admin_client.get_profile()
+    print(f"      ✓ User: {profile['first_name']} {profile['last_name']}")
+    print(f"      ✓ Roles: {profile.get('roles', ['admin'])}")
+    
+    print("\n[1.3] Fetching user organizations...")
+    orgs = admin_client.list_organizations()
+    if orgs.get('results'):
+        org = orgs['results'][0]
+        print(f"      ✓ Organization: {org['name']} (ID: {org['id']})")
+        organization_id = org['id']
+    else:
+        raise Exception("No organization found. User should have a default organization.")
+    
+    # =========================================================================
+    # PHASE 2: CREATE SURVEY STRUCTURE
+    # =========================================================================
+    print("\n" + "-"*70)
+    print("PHASE 2: CREATE SURVEY STRUCTURE")
+    print("-"*70)
+    
+    # Create Survey
+    print("\n[2.1] Creating survey...")
+    survey = admin_client.create_survey(
+        title="Employee Satisfaction Survey 2024",
+        description="Annual survey to understand employee satisfaction and gather feedback",
+        organization_id=organization_id
+    )
+    survey_id = survey["id"]
+    print(f"      ✓ Survey created: {survey['title']}")
+    print(f"      ✓ Survey ID: {survey_id}")
+    print(f"      ✓ Organization: {survey.get('organization_name', 'N/A')}")
+    
+    # -------------------------------------------------------------------------
+    # Section 1: Basic Information
+    # -------------------------------------------------------------------------
+    print("\n[2.2] Creating Section 1: Basic Information...")
+    section1 = admin_client.create_section(
+        survey_id=survey_id,
+        title="Basic Information",
+        description="Tell us about yourself",
+        order=1
+    )
+    section1_id = section1["id"]
+    print(f"      ✓ Section created: {section1['title']}")
+    
+    # Field: Name
+    print("\n[2.3] Adding fields to Section 1...")
+    name_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section1_id,
+        label="Your Name",
+        field_type="text",
+        is_required=True,
+        order=1
+    )
+    print(f"      ✓ Field: {name_field['label']} (text, required)")
+    
+    # Field: Department (dropdown)
+    department_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section1_id,
+        label="Department",
+        field_type="dropdown",
+        is_required=True,
+        order=2
+    )
+    department_field_id = department_field["id"]
+    print(f"      ✓ Field: {department_field['label']} (dropdown, required)")
+    
+    # Add department options
+    departments = [
+        ("Engineering", "engineering", 1),
+        ("Sales", "sales", 2),
+        ("Marketing", "marketing", 3),
+        ("Human Resources", "hr", 4),
+        ("Finance", "finance", 5),
+    ]
+    for label, value, order in departments:
+        admin_client.create_field_option(
+            survey_id=survey_id,
+            section_id=section1_id,
+            field_id=department_field_id,
+            label=label,
+            value=value,
+            order=order
+        )
+    print(f"      ✓ Added {len(departments)} department options")
+    
+    # Field: Employment Type (radio)
+    employment_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section1_id,
+        label="Employment Type",
+        field_type="radio",
+        is_required=True,
+        order=3
+    )
+    employment_field_id = employment_field["id"]
+    print(f"      ✓ Field: {employment_field['label']} (radio, required)")
+    
+    # Add employment options
+    employment_types = [
+        ("Full-time", "full_time", 1),
+        ("Part-time", "part_time", 2),
+        ("Contract", "contract", 3),
+    ]
+    for label, value, order in employment_types:
+        admin_client.create_field_option(
+            survey_id=survey_id,
+            section_id=section1_id,
+            field_id=employment_field_id,
+            label=label,
+            value=value,
+            order=order
+        )
+    print(f"      ✓ Added {len(employment_types)} employment type options")
+    
+    # -------------------------------------------------------------------------
+    # Section 2: Job Satisfaction
+    # -------------------------------------------------------------------------
+    print("\n[2.4] Creating Section 2: Job Satisfaction...")
+    section2 = admin_client.create_section(
+        survey_id=survey_id,
+        title="Job Satisfaction",
+        description="Rate your satisfaction with various aspects of your job",
+        order=2
+    )
+    section2_id = section2["id"]
+    print(f"      ✓ Section created: {section2['title']}")
+    
+    print("\n[2.5] Adding fields to Section 2...")
+    
+    # Field: Overall Satisfaction
+    satisfaction_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section2_id,
+        label="Overall Job Satisfaction",
+        field_type="radio",
+        is_required=True,
+        order=1
+    )
+    satisfaction_field_id = satisfaction_field["id"]
+    print(f"      ✓ Field: {satisfaction_field['label']} (radio, required)")
+    
+    satisfaction_options = [
+        ("Very Satisfied", "very_satisfied", 1),
+        ("Satisfied", "satisfied", 2),
+        ("Neutral", "neutral", 3),
+        ("Dissatisfied", "dissatisfied", 4),
+        ("Very Dissatisfied", "very_dissatisfied", 5),
+    ]
+    for label, value, order in satisfaction_options:
+        admin_client.create_field_option(
+            survey_id=survey_id,
+            section_id=section2_id,
+            field_id=satisfaction_field_id,
+            label=label,
+            value=value,
+            order=order
+        )
+    print(f"      ✓ Added {len(satisfaction_options)} satisfaction options")
+    
+    # Field: Would Recommend
+    recommend_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section2_id,
+        label="Would you recommend this company as a good place to work?",
+        field_type="radio",
+        is_required=True,
+        order=2
+    )
+    recommend_field_id = recommend_field["id"]
+    print(f"      ✓ Field: {recommend_field['label']} (radio, required)")
+    
+    yes_no_options = [
+        ("Yes", "yes", 1),
+        ("No", "no", 2),
+        ("Maybe", "maybe", 3),
+    ]
+    for label, value, order in yes_no_options:
+        admin_client.create_field_option(
+            survey_id=survey_id,
+            section_id=section2_id,
+            field_id=recommend_field_id,
+            label=label,
+            value=value,
+            order=order
+        )
+    print(f"      ✓ Added {len(yes_no_options)} recommendation options")
+    
+    # -------------------------------------------------------------------------
+    # Section 3: Improvement Feedback (Conditional - shown if dissatisfied)
+    # -------------------------------------------------------------------------
+    print("\n[2.6] Creating Section 3: Improvement Feedback (Conditional)...")
+    section3 = admin_client.create_section(
+        survey_id=survey_id,
+        title="Areas for Improvement",
+        description="Help us understand what we can do better",
+        order=3
+    )
+    section3_id = section3["id"]
+    print(f"      ✓ Section created: {section3['title']}")
+    
+    print("\n[2.7] Adding fields to Section 3...")
+    
+    # Field: What needs improvement
+    improvement_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section3_id,
+        label="What areas need the most improvement?",
+        field_type="checkbox",
+        is_required=False,
+        order=1
+    )
+    improvement_field_id = improvement_field["id"]
+    print(f"      ✓ Field: {improvement_field['label']} (checkbox)")
+    
+    improvement_options = [
+        ("Work-Life Balance", "work_life_balance", 1),
+        ("Compensation", "compensation", 2),
+        ("Career Growth", "career_growth", 3),
+        ("Management", "management", 4),
+        ("Team Collaboration", "team_collaboration", 5),
+        ("Tools & Resources", "tools_resources", 6),
+    ]
+    for label, value, order in improvement_options:
+        admin_client.create_field_option(
+            survey_id=survey_id,
+            section_id=section3_id,
+            field_id=improvement_field_id,
+            label=label,
+            value=value,
+            order=order
+        )
+    print(f"      ✓ Added {len(improvement_options)} improvement options")
+    
+    # Field: Additional Comments
+    comments_field = admin_client.create_field(
+        survey_id=survey_id,
+        section_id=section3_id,
+        label="Additional Comments or Suggestions",
+        field_type="text",
+        is_required=False,
+        order=2
+    )
+    print(f"      ✓ Field: {comments_field['label']} (text, optional)")
+    
+    # -------------------------------------------------------------------------
+    # Add Conditional Rule: Show Section 3 if dissatisfied
+    # -------------------------------------------------------------------------
+    print("\n[2.8] Creating conditional rule...")
+    print("      → Rule: Show 'Areas for Improvement' section when satisfaction is 'Dissatisfied' or 'Very Dissatisfied'")
+    
+    # Note: In a real implementation, you would create conditional rules here
+    # The API endpoint would be: POST /api/v1/surveys/{survey_id}/rules/
+    # For now, we'll skip this as it requires the rule creation endpoint
+    print("      ⚠ Conditional rules require the rules endpoint (skipped for this example)")
+    
+    # =========================================================================
+    # PHASE 3: PUBLISH SURVEY
+    # =========================================================================
+    print("\n" + "-"*70)
+    print("PHASE 3: PUBLISH SURVEY")
+    print("-"*70)
+    
+    print("\n[3.1] Publishing survey...")
+    publish_result = admin_client.publish_survey(survey_id)
+    print(f"      ✓ {publish_result['detail']}")
+    print(f"      ✓ Survey is now available for submissions!")
+    
+    # =========================================================================
+    # PHASE 4: ANONYMOUS USER SUBMITS RESPONSE
+    # =========================================================================
+    print("\n" + "-"*70)
+    print("PHASE 4: ANONYMOUS USER SUBMITS RESPONSE")
+    print("-"*70)
+    
+    submission_client = SurveySubmissionClient(BASE_URL)
+    
+    print("\n[4.1] Starting survey session (anonymous)...")
+    start_result = submission_client.start_survey(survey_id)
+    print(f"      ✓ Session started!")
+    print(f"      ✓ Session Token: {start_result['session_token'][:16]}...")
+    
+    # Submit Section 1
+    print("\n[4.2] Getting Section 1...")
+    section_data = submission_client.get_current_section()
+    current_section = section_data["current_section"]
+    print(f"      ✓ Section: {current_section['title']}")
+    print(f"      ✓ Fields: {len(current_section['fields'])}")
+    
+    # Display fields
+    fields = current_section["fields"]
+    for f in fields:
+        print(f"        - {f['label']} ({f['field_type']})")
+    
+    print("\n[4.3] Submitting Section 1 answers...")
+    section1_answers = [
+        {"field_id": fields[0]["field_id"], "value": "Alice Johnson"},
+        {"field_id": fields[1]["field_id"], "value": "engineering"},
+        {"field_id": fields[2]["field_id"], "value": "full_time"},
+    ]
+    result = submission_client.submit_section(current_section["section_id"], section1_answers)
+    print(f"      ✓ {result['message']}")
+    print(f"      ✓ Progress: {result['progress']['percentage']:.1f}%")
+    
+    # Submit Section 2
+    print("\n[4.4] Getting Section 2...")
+    section_data = submission_client.get_current_section()
+    current_section = section_data["current_section"]
+    print(f"      ✓ Section: {current_section['title']}")
+    
+    fields = current_section["fields"]
+    for f in fields:
+        print(f"        - {f['label']} ({f['field_type']})")
+    
+    print("\n[4.5] Submitting Section 2 answers...")
+    section2_answers = [
+        {"field_id": fields[0]["field_id"], "value": "satisfied"},
+        {"field_id": fields[1]["field_id"], "value": "yes"},
+    ]
+    result = submission_client.submit_section(current_section["section_id"], section2_answers)
+    print(f"      ✓ {result['message']}")
+    print(f"      ✓ Progress: {result['progress']['percentage']:.1f}%")
+    
+    # Submit Section 3 (optional feedback)
+    print("\n[4.6] Getting Section 3...")
+    section_data = submission_client.get_current_section()
+    
+    if section_data.get("current_section"):
+        current_section = section_data["current_section"]
+        print(f"      ✓ Section: {current_section['title']}")
+        
+        fields = current_section["fields"]
+        for f in fields:
+            print(f"        - {f['label']} ({f['field_type']})")
+        
+        print("\n[4.7] Submitting Section 3 answers...")
+        section3_answers = [
+            {"field_id": fields[0]["field_id"], "value": ["career_growth", "tools_resources"]},
+            {"field_id": fields[1]["field_id"], "value": "Great company overall! Would love more learning opportunities."},
+        ]
+        result = submission_client.submit_section(current_section["section_id"], section3_answers)
+        print(f"      ✓ {result['message']}")
+        print(f"      ✓ Progress: {result['progress']['percentage']:.1f}%")
+    else:
+        print("      ✓ No more sections (survey complete)")
+    
+    # Finish Survey
+    print("\n[4.8] Finishing survey submission...")
+    finish_result = submission_client.finish_survey()
+    print(f"      ✓ {finish_result.get('message', 'Survey completed!')}")
+    print(f"      ✓ Completed at: {finish_result.get('completed_at', 'N/A')}")
+    
+    # =========================================================================
+    # PHASE 5: VIEW ANALYTICS (AS SURVEY OWNER)
+    # =========================================================================
+    print("\n" + "-"*70)
+    print("PHASE 5: VIEW ANALYTICS (AS SURVEY OWNER)")
+    print("-"*70)
+    
+    print("\n[5.1] Fetching survey responses...")
+    responses = admin_client.get_responses(survey_id)
+    print(f"      ✓ Total responses: {responses.get('count', len(responses.get('results', [])))}")
+    
+    if responses.get('results'):
+        for resp in responses['results'][:3]:  # Show first 3
+            print(f"        - Response {resp['id'][:8]}... | Status: {resp['status']} | Started: {resp['started_at'][:10]}")
+    
+    print("\n[5.2] Fetching survey analytics...")
+    try:
+        analytics = admin_client.get_analytics(survey_id)
+        print(f"      ✓ Total Responses: {analytics['total_responses']}")
+        print(f"      ✓ Completed: {analytics['completed_responses']}")
+        print(f"      ✓ In Progress: {analytics['in_progress_responses']}")
+        print(f"      ✓ Completion Rate: {analytics['completion_rate']:.1f}%")
+        
+        if analytics.get('average_completion_time_seconds'):
+            avg_time = analytics['average_completion_time_seconds']
+            print(f"      ✓ Avg. Completion Time: {avg_time:.1f} seconds")
+    except Exception as e:
+        print(f"      ⚠ Analytics error: {e}")
+    
+    # =========================================================================
+    # SUMMARY
+    # =========================================================================
+    print("\n" + "="*70)
+    print("WORKFLOW COMPLETE!")
+    print("="*70)
+    print(f"""
+Summary:
+  • Survey ID: {survey_id}
+  • Survey Title: Employee Satisfaction Survey 2024
+  • Sections: 3 (Basic Info, Job Satisfaction, Improvement Feedback)
+  • Total Fields: 7
+  • Status: Published
+  • Responses Collected: 1
+
+API Endpoints Used:
+  • POST /api/v1/auth/register/ - Register user
+  • POST /api/v1/auth/login/ - Login user
+  • GET  /api/v1/auth/me/ - Get profile
+  • GET  /api/v1/organizations/ - List organizations
+  • POST /api/v1/surveys/ - Create survey
+  • POST /api/v1/surveys/{{id}}/sections/ - Create section
+  • POST /api/v1/surveys/{{id}}/sections/{{id}}/fields/ - Create field
+  • POST /api/v1/surveys/{{id}}/sections/{{id}}/fields/{{id}}/options/ - Create option
+  • POST /api/v1/surveys/{{id}}/publish/ - Publish survey
+  • POST /api/v1/surveys/{{id}}/submissions/start/ - Start submission
+  • GET  /api/v1/submissions/current-section/ - Get current section
+  • POST /api/v1/submissions/submit-section/ - Submit answers
+  • POST /api/v1/submissions/finish/ - Finish submission
+  • GET  /api/v1/surveys/{{id}}/responses/ - List responses
+  • GET  /api/v1/surveys/{{id}}/responses/analytics/ - Get analytics
+""")
+    
+    return survey_id
+
+
 def example_1_authentication_flow():
     """Example 1: Complete authentication flow."""
     print("\n" + "="*60)
@@ -552,12 +1012,43 @@ def example_4_view_analytics(survey_id: str):
 
 
 def main():
-    """Run all examples."""
-    print("\n" + "="*60)
-    print("Survey Platform API - Python Examples")
-    print("="*60)
+    """Run the complete survey workflow example."""
+    print("\n" + "="*70)
+    print("Survey Platform API - Python Integration Examples")
+    print("="*70)
     print(f"\nBase URL: {BASE_URL}")
     print(f"User: {USER_EMAIL}")
+    print("\nThis example demonstrates the complete survey lifecycle:")
+    print("  1. User authentication (register/login)")
+    print("  2. Survey creation with sections, fields, and options")
+    print("  3. Anonymous user submitting a response")
+    print("  4. Survey owner viewing analytics")
+    
+    try:
+        # Run the complete workflow
+        survey_id = complete_survey_workflow()
+        
+        print("\n" + "="*70)
+        print("✅ EXAMPLE COMPLETED SUCCESSFULLY!")
+        print("="*70 + "\n")
+        
+    except requests.exceptions.HTTPError as e:
+        print(f"\n❌ HTTP Error: {e}")
+        try:
+            print(f"Response: {e.response.text}")
+        except:
+            pass
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def run_individual_examples():
+    """Run the original individual examples."""
+    print("\n" + "="*60)
+    print("Running Individual Examples")
+    print("="*60)
     
     try:
         # Example 1: Authentication

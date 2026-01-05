@@ -171,7 +171,7 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
+    "EXCEPTION_HANDLER": "config.exceptions.custom_exception_handler",
 }
 
 
@@ -183,21 +183,11 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "SCHEMA_PATH_PREFIX": "/api/v[0-9]",
     
-    # Document authentication in Swagger UI
-    "APPEND_COMPONENTS": {
-        "securitySchemes": {
-            "bearerAuth": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT",
-            },
-        }
-    },
-    
     # Swagger UI enhancements
     "SWAGGER_UI_SETTINGS": {
-        "persistAuthorization": True,  # Keep login when testing
-        "filter": True,  # Add search/filter box for endpoints
+        "persistAuthorization": True,
+        "filter": True,
+        "deepLinking": True,
     },
 }
 
