@@ -12,7 +12,24 @@ def api_client():
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email='audit_tester@example.com', password='pass')
+    from organizations.models import Organization, OrganizationMembership
+    from users.models import Role, UserRole
+    
+    user = User.objects.create_user(email='audit_tester@example.com', password='pass')
+    
+    # Give user manager role so they have create_survey permission
+    manager_role = Role.objects.get(name='manager')
+    UserRole.objects.create(user=user, role=manager_role)
+    
+    # Create organization for user
+    org = Organization.objects.create(name="Audit Test Organization")
+    OrganizationMembership.objects.create(
+        user=user,
+        organization=org,
+        role=OrganizationMembership.Role.OWNER
+    )
+    
+    return user
 
 @pytest.fixture
 def auth_client(api_client, user):
@@ -25,10 +42,12 @@ class TestAuditLog:
 
     def test_audit_logs_lifecycle(self, auth_client, user):
         # 1. CREATE Survey
+        org = user.organizations.first()
         url = reverse('survey-list')
         response = auth_client.post(url, {
             'title': 'Audit Survey',
-            'description': 'Testing logs'
+            'description': 'Testing logs',
+            'organization': str(org.id),
         })
         assert response.status_code == status.HTTP_201_CREATED
         survey_id = response.data['id']

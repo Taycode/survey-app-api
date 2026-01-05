@@ -21,20 +21,29 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     """Serializer for user registration."""
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'password', 'password_confirm', 'first_name', 'last_name']
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError({'password_confirm': 'Passwords do not match'})
-        return attrs
+        fields = ['email', 'password', 'first_name', 'last_name']
 
     def create(self, validated_data):
-        validated_data.pop('password_confirm')
+        from organizations.models import Organization, OrganizationMembership
+        
+        # Create user
         user = User.objects.create_user(**validated_data)
+        
+        # Create organization for new user
+        organization = Organization.objects.create(
+            name=f"{user.first_name}'s Organization"
+        )
+        
+        # Make user the owner
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=organization,
+            role=OrganizationMembership.Role.OWNER
+        )
+        
         return user
 
 

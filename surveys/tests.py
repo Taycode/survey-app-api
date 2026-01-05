@@ -13,10 +13,26 @@ def api_client():
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(
+    from organizations.models import Organization, OrganizationMembership
+    
+    user = User.objects.create_user(
         email='test@example.com',
         password='TestPass123!',
     )
+    
+    # Give user manager role so they have all survey permissions
+    manager_role = Role.objects.get(name='manager')
+    UserRole.objects.create(user=user, role=manager_role)
+    
+    # Create organization for user
+    org = Organization.objects.create(name="Test Organization")
+    OrganizationMembership.objects.create(
+        user=user,
+        organization=org,
+        role=OrganizationMembership.Role.OWNER
+    )
+    
+    return user
 
 
 @pytest.fixture
@@ -33,10 +49,12 @@ def auth_client(api_client, user):
 
 @pytest.fixture
 def survey(user):
+    org = user.organizations.first()
     return Survey.objects.create(
         title='Test Survey',
         description='A test survey',
         created_by=user,
+        organization=org,
     )
 
 
@@ -65,12 +83,14 @@ def field(section):
 class TestSurvey:
     """Tests for survey endpoints."""
 
-    def test_create_survey(self, auth_client):
+    def test_create_survey(self, auth_client, user):
         """Test creating a survey."""
+        org = user.organizations.first()
         url = reverse('survey-list')
         response = auth_client.post(url, {
             'title': 'My Survey',
             'description': 'A description',
+            'organization': str(org.id),
         }, format='json')
 
         assert response.status_code == status.HTTP_201_CREATED
@@ -346,61 +366,102 @@ class TestRBAC:
 
     @pytest.fixture
     def admin_role(self, db):
-        """Create admin role with all permissions."""
-        role = Role.objects.create(name='admin', description='Admin role')
-        permissions = Permission.objects.all()
-        for perm in permissions:
-            RolePermission.objects.create(role=role, permission=perm)
+        """Get or create admin role with all permissions."""
+        role, created = Role.objects.get_or_create(
+            name='admin',
+            defaults={'description': 'Admin role'}
+        )
+        if created:
+            permissions = Permission.objects.all()
+            for perm in permissions:
+                RolePermission.objects.get_or_create(role=role, permission=perm)
         return role
 
     @pytest.fixture
     def manager_role(self, db):
-        """Create manager role with survey management permissions."""
-        role = Role.objects.create(name='manager', description='Manager role')
-        manager_perms = [
-            'create_survey', 'edit_survey', 'delete_survey', 'publish_survey',
-            'view_responses', 'export_responses', 'view_analytics'
-        ]
-        for codename in manager_perms:
-            perm = Permission.objects.filter(codename=codename).first()
-            if perm:
-                RolePermission.objects.create(role=role, permission=perm)
+        """Get or create manager role with survey management permissions."""
+        role, created = Role.objects.get_or_create(
+            name='manager',
+            defaults={'description': 'Manager role'}
+        )
+        if created:
+            manager_perms = [
+                'create_survey', 'edit_survey', 'delete_survey', 'publish_survey',
+                'view_responses', 'export_responses', 'view_analytics'
+            ]
+            for codename in manager_perms:
+                perm = Permission.objects.filter(codename=codename).first()
+                if perm:
+                    RolePermission.objects.get_or_create(role=role, permission=perm)
         return role
 
     @pytest.fixture
     def viewer_role(self, db):
-        """Create viewer role with view_responses permission only."""
-        role = Role.objects.create(name='viewer', description='Viewer role')
-        perm = Permission.objects.filter(codename='view_responses').first()
-        if perm:
-            RolePermission.objects.create(role=role, permission=perm)
+        """Get or create viewer role with view_responses permission only."""
+        role, created = Role.objects.get_or_create(
+            name='viewer',
+            defaults={'description': 'Viewer role'}
+        )
+        if created:
+            perm = Permission.objects.filter(codename='view_responses').first()
+            if perm:
+                RolePermission.objects.get_or_create(role=role, permission=perm)
         return role
 
     @pytest.fixture
     def admin_user(self, db, admin_role):
         """Create user with admin role."""
+        from organizations.models import Organization, OrganizationMembership
+        
         user = User.objects.create_user(email='admin@example.com', password='TestPass123!')
         UserRole.objects.create(user=user, role=admin_role)
+        
+        # Create organization
+        org = Organization.objects.create(name="Admin Organization")
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.OWNER)
+        
         return user
 
     @pytest.fixture
     def manager_user(self, db, manager_role):
         """Create user with manager role."""
+        from organizations.models import Organization, OrganizationMembership
+        
         user = User.objects.create_user(email='manager@example.com', password='TestPass123!')
         UserRole.objects.create(user=user, role=manager_role)
+        
+        # Create organization
+        org = Organization.objects.create(name="Manager Organization")
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.OWNER)
+        
         return user
 
     @pytest.fixture
     def viewer_user(self, db, viewer_role):
         """Create user with viewer role."""
+        from organizations.models import Organization, OrganizationMembership
+        
         user = User.objects.create_user(email='viewer@example.com', password='TestPass123!')
         UserRole.objects.create(user=user, role=viewer_role)
+        
+        # Create organization
+        org = Organization.objects.create(name="Viewer Organization")
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.OWNER)
+        
         return user
 
     @pytest.fixture
     def regular_user(self, db):
         """Create user without any roles."""
-        return User.objects.create_user(email='regular@example.com', password='TestPass123!')
+        from organizations.models import Organization, OrganizationMembership
+        
+        user = User.objects.create_user(email='regular@example.com', password='TestPass123!')
+        
+        # Create organization
+        org = Organization.objects.create(name="Regular Organization")
+        OrganizationMembership.objects.create(user=user, organization=org, role=OrganizationMembership.Role.OWNER)
+        
+        return user
 
     @pytest.fixture
     def admin_client(self, api_client, admin_user):
@@ -446,48 +507,58 @@ class TestRBAC:
         api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {tokens["access"]}')
         return api_client
 
-    def test_admin_can_create_survey(self, admin_client):
+    def test_admin_can_create_survey(self, admin_client, admin_user):
         """Test admin can create surveys."""
+        org = admin_user.organizations.first()
         url = reverse('survey-list')
         response = admin_client.post(url, {
             'title': 'Admin Survey',
             'description': 'A survey',
+            'organization': str(org.id),
         }, format='json')
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_manager_can_create_survey(self, manager_client):
+    def test_manager_can_create_survey(self, manager_client, manager_user):
         """Test manager can create surveys."""
+        org = manager_user.organizations.first()
         url = reverse('survey-list')
         response = manager_client.post(url, {
             'title': 'Manager Survey',
             'description': 'A survey',
+            'organization': str(org.id),
         }, format='json')
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_viewer_cannot_create_survey(self, viewer_client):
+    def test_viewer_cannot_create_survey(self, viewer_client, viewer_user):
         """Test viewer cannot create surveys."""
+        org = viewer_user.organizations.first()
         url = reverse('survey-list')
         response = viewer_client.post(url, {
             'title': 'Viewer Survey',
             'description': 'A survey',
+            'organization': str(org.id),
         }, format='json')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_regular_user_cannot_create_survey(self, regular_client):
+    def test_regular_user_cannot_create_survey(self, regular_client, regular_user):
         """Test regular user without permissions cannot create surveys."""
+        org = regular_user.organizations.first()
         url = reverse('survey-list')
         response = regular_client.post(url, {
             'title': 'Regular Survey',
             'description': 'A survey',
+            'organization': str(org.id),
         }, format='json')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_manager_can_edit_own_survey(self, manager_client, manager_user):
         """Test manager can edit surveys they created."""
+        org = manager_user.organizations.first()
         survey = Survey.objects.create(
             title='Manager Survey',
             description='A survey',
             created_by=manager_user,
+            organization=org,
         )
         url = reverse('survey-detail', kwargs={'pk': survey.id})
         response = manager_client.patch(url, {
@@ -495,12 +566,18 @@ class TestRBAC:
         }, format='json')
         assert response.status_code == status.HTTP_200_OK
 
-    def test_manager_can_edit_other_survey(self, manager_client, regular_user):
-        """Test manager can edit surveys created by others (has edit_survey permission)."""
+    def test_manager_can_edit_other_survey(self, manager_client, manager_user, regular_user):
+        """Test manager can edit surveys created by others in same organization (has edit_survey permission)."""
+        org = manager_user.organizations.first()
+        # Add regular_user to manager's organization
+        from organizations.models import OrganizationMembership
+        OrganizationMembership.objects.create(user=regular_user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
         survey = Survey.objects.create(
             title='Other Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-detail', kwargs={'pk': survey.id})
         response = manager_client.patch(url, {
@@ -508,12 +585,18 @@ class TestRBAC:
         }, format='json')
         assert response.status_code == status.HTTP_200_OK
 
-    def test_viewer_cannot_edit_survey(self, viewer_client, regular_user):
+    def test_viewer_cannot_edit_survey(self, viewer_client, viewer_user, regular_user):
         """Test viewer cannot edit surveys."""
+        org = viewer_user.organizations.first()
+        # Add regular_user to viewer's org
+        from organizations.models import OrganizationMembership
+        OrganizationMembership.objects.create(user=regular_user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
         survey = Survey.objects.create(
             title='Other Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-detail', kwargs={'pk': survey.id})
         response = viewer_client.patch(url, {
@@ -521,13 +604,19 @@ class TestRBAC:
         }, format='json')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_viewer_can_view_all_surveys(self, viewer_client, regular_user):
-        """Test viewer can view all surveys (has view_responses permission)."""
-        # Create survey by another user
+    def test_viewer_can_view_all_surveys(self, viewer_client, viewer_user, regular_user):
+        """Test viewer can view all surveys in their organization (has view_responses permission)."""
+        org = viewer_user.organizations.first()
+        # Add regular_user to viewer's org
+        from organizations.models import OrganizationMembership
+        OrganizationMembership.objects.create(user=regular_user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
+        # Create survey by another user in same org
         Survey.objects.create(
             title='Other Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-list')
         response = viewer_client.get(url)
@@ -536,17 +625,21 @@ class TestRBAC:
 
     def test_regular_user_sees_only_own_surveys(self, regular_client, regular_user, manager_user):
         """Test regular user without permissions sees only their own surveys."""
+        org = regular_user.organizations.first()
         # Create survey by regular user
         Survey.objects.create(
             title='My Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
-        # Create survey by manager
+        # Create survey by manager in different org
+        manager_org = manager_user.organizations.first()
         Survey.objects.create(
             title='Manager Survey',
             description='A survey',
             created_by=manager_user,
+            organization=manager_org,
         )
         url = reverse('survey-list')
         response = regular_client.get(url)
@@ -557,23 +650,35 @@ class TestRBAC:
 
     def test_manager_can_publish_survey(self, manager_client, manager_user):
         """Test manager can publish surveys."""
+        org = manager_user.organizations.first()
         survey = Survey.objects.create(
             title='Manager Survey',
             description='A survey',
             created_by=manager_user,
+            organization=org,
         )
+        # Add section and field for publish validation
+        section = Section.objects.create(survey=survey, title='Section 1', order=1)
+        Field.objects.create(section=section, label='Question 1', field_type=Field.FieldType.TEXT, order=1)
+        
         url = reverse('survey-publish', kwargs={'pk': survey.id})
         response = manager_client.post(url)
         assert response.status_code == status.HTTP_200_OK
         survey.refresh_from_db()
         assert survey.status == Survey.Status.PUBLISHED
 
-    def test_viewer_cannot_publish_survey(self, viewer_client, regular_user):
+    def test_viewer_cannot_publish_survey(self, viewer_client, viewer_user, regular_user):
         """Test viewer cannot publish surveys."""
+        org = viewer_user.organizations.first()
+        # Add regular_user to viewer's org
+        from organizations.models import OrganizationMembership
+        OrganizationMembership.objects.create(user=regular_user, organization=org, role=OrganizationMembership.Role.MEMBER)
+        
         survey = Survey.objects.create(
             title='Other Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-publish', kwargs={'pk': survey.id})
         response = viewer_client.post(url)
@@ -581,10 +686,12 @@ class TestRBAC:
 
     def test_owner_can_access_survey_without_permission(self, regular_client, regular_user):
         """Test owner can access their survey even without view_responses permission."""
+        org = regular_user.organizations.first()
         survey = Survey.objects.create(
             title='My Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-detail', kwargs={'pk': survey.id})
         response = regular_client.get(url)
@@ -592,10 +699,12 @@ class TestRBAC:
 
     def test_owner_can_edit_survey_without_permission(self, regular_client, regular_user):
         """Test owner can edit their survey even without edit_survey permission."""
+        org = regular_user.organizations.first()
         survey = Survey.objects.create(
             title='My Survey',
             description='A survey',
             created_by=regular_user,
+            organization=org,
         )
         url = reverse('survey-detail', kwargs={'pk': survey.id})
         response = regular_client.patch(url, {

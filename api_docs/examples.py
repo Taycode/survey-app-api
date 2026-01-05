@@ -20,7 +20,7 @@ from typing import Dict, Optional, List
 
 # Configuration
 BASE_URL = "http://localhost:8000"
-USER_EMAIL = "user@example.com"
+USER_EMAIL = "testuser@example.com"
 USER_PASSWORD = "SecurePassword123!"
 
 
@@ -99,13 +99,45 @@ class SurveyAPIClient:
         response.raise_for_status()
         return response.json()
     
-    def create_survey(self, title: str, description: str) -> Dict:
+    def _ensure_manager_role(self):
+        """Ensure user has manager role (for testing purposes)."""
+        # Note: In production, roles should be assigned by admins
+        # This is a helper for examples/testing only
+        try:
+            from django.contrib.auth import get_user_model
+            from users.models import Role, UserRole
+            
+            User = get_user_model()
+            user = User.objects.get(email=USER_EMAIL)
+            manager_role = Role.objects.get(name='manager')
+            UserRole.objects.get_or_create(user=user, role=manager_role)
+        except Exception:
+            # If this fails, user needs to be assigned role manually
+            pass
+    
+    def list_organizations(self) -> Dict:
+        """List user's organizations."""
+        url = f"{self.base_url}/api/v1/organizations/"
+        response = requests.get(url, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+    
+    def create_survey(self, title: str, description: str, organization_id: Optional[str] = None) -> Dict:
         """Create a new survey."""
+        # If organization_id not provided, get user's first organization
+        if not organization_id:
+            orgs = self.list_organizations()
+            if orgs.get('results') and len(orgs['results']) > 0:
+                organization_id = orgs['results'][0]['id']
+            else:
+                raise ValueError("User has no organizations. Please create an organization first.")
+        
         url = f"{self.base_url}/api/v1/surveys/"
         data = {
             "title": title,
             "description": description,
-            "status": "draft"
+            "status": "draft",
+            "organization": organization_id
         }
         response = requests.post(url, json=data, headers=self._get_headers())
         response.raise_for_status()
@@ -272,11 +304,21 @@ def example_1_authentication_flow():
     
     client = SurveyAPIClient(BASE_URL)
     
-    # Login
-    print("\n1. Logging in...")
-    login_result = client.login(USER_EMAIL, USER_PASSWORD)
-    print(f"   ✓ Logged in as: {login_result['user']['email']}")
-    print(f"   ✓ Role: {login_result['user']['role']}")
+    # Try to login, if fails, register first
+    print("\n1. Attempting to login...")
+    try:
+        login_result = client.login(USER_EMAIL, USER_PASSWORD)
+        print(f"   ✓ Logged in as: {login_result['user']['email']}")
+    except requests.exceptions.HTTPError:
+        print("   ⚠ User doesn't exist, registering new user...")
+        register_result = client.register(
+            email=USER_EMAIL,
+            password=USER_PASSWORD,
+            first_name="Test",
+            last_name="User"
+        )
+        print(f"   ✓ Registered and logged in as: {register_result['user']['email']}")
+        login_result = register_result
     
     # Get profile
     print("\n2. Getting user profile...")
@@ -301,7 +343,16 @@ def example_2_create_survey():
     print("="*60)
     
     client = SurveyAPIClient(BASE_URL)
-    client.login(USER_EMAIL, USER_PASSWORD)
+    try:
+        client.login(USER_EMAIL, USER_PASSWORD)
+    except requests.exceptions.HTTPError:
+        # Register if login fails
+        client.register(
+            email=USER_EMAIL,
+            password=USER_PASSWORD,
+            first_name="Test",
+            last_name="User"
+        )
     
     # Create survey
     print("\n1. Creating survey...")
@@ -416,43 +467,46 @@ def example_3_submit_survey(survey_id: str):
     
     # Get first section
     print("\n2. Getting first section...")
-    current_section = client.get_current_section()
-    section = current_section["section"]
+    current_section_data = client.get_current_section()
+    current_section = current_section_data["current_section"]
+    section_id = current_section["section_id"]
     fields = current_section["fields"]
-    print(f"   ✓ Section: {section['title']}")
+    print(f"   ✓ Section: {current_section['title']}")
     print(f"   ✓ Fields: {len(fields)}")
     
     # Submit first section
     print("\n3. Submitting first section...")
     answers = [
-        {"field_id": fields[0]["id"], "value": "John Doe"},
-        {"field_id": fields[1]["id"], "value": "john.doe@example.com"}
+        {"field_id": fields[0]["field_id"], "value": "John Doe"},
+        {"field_id": fields[1]["field_id"], "value": "john.doe@example.com"}
     ]
-    submit_result = client.submit_section(section["id"], answers)
+    submit_result = client.submit_section(section_id, answers)
     print(f"   ✓ {submit_result['message']}")
     print(f"   ✓ Progress: {submit_result['progress']['percentage']:.1f}%")
     
     # Get second section
     print("\n4. Getting second section...")
-    current_section = client.get_current_section()
-    section = current_section["section"]
+    current_section_data = client.get_current_section()
+    current_section = current_section_data["current_section"]
+    section_id = current_section["section_id"]
     fields = current_section["fields"]
-    print(f"   ✓ Section: {section['title']}")
+    print(f"   ✓ Section: {current_section['title']}")
     
     # Submit second section
     print("\n5. Submitting second section...")
     answers = [
-        {"field_id": fields[0]["id"], "value": "very_satisfied"}
+        {"field_id": fields[0]["field_id"], "value": "very_satisfied"}
     ]
-    submit_result = client.submit_section(section["id"], answers)
+    submit_result = client.submit_section(section_id, answers)
     print(f"   ✓ {submit_result['message']}")
     print(f"   ✓ Progress: {submit_result['progress']['percentage']:.1f}%")
     
     # Finish survey
     print("\n6. Finishing survey...")
     finish_result = client.finish_survey()
-    print(f"   ✓ {finish_result['message']}")
-    print(f"   ✓ Response ID: {finish_result['response_id']}")
+    print(f"   ✓ {finish_result.get('message', 'Survey completed successfully')}")
+    if 'response_id' in finish_result:
+        print(f"   ✓ Response ID: {finish_result['response_id']}")
 
 
 def example_4_view_analytics(survey_id: str):
@@ -462,7 +516,16 @@ def example_4_view_analytics(survey_id: str):
     print("="*60)
     
     client = SurveyAPIClient(BASE_URL)
-    client.login(USER_EMAIL, USER_PASSWORD)
+    try:
+        client.login(USER_EMAIL, USER_PASSWORD)
+    except requests.exceptions.HTTPError:
+        # Register if login fails
+        client.register(
+            email=USER_EMAIL,
+            password=USER_PASSWORD,
+            first_name="Test",
+            last_name="User"
+        )
     
     # Get responses
     print("\n1. Getting responses...")

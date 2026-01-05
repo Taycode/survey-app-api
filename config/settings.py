@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # Local apps
     "users",
+    "organizations",
     "surveys",
     "submissions",
     "audit",
@@ -166,6 +167,11 @@ REST_FRAMEWORK = {
     "ALLOWED_VERSIONS": ["v1", "v2"],  # Ready for future API versions
     "VERSION_PARAM": "version",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Always return JSON responses, even for errors
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
 }
 
 
