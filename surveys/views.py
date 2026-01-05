@@ -31,11 +31,80 @@ from users.permissions import (
 
 
 @extend_schema_view(
-    list=extend_schema(summary="List surveys", description="Get all surveys. Users with view_responses permission see all surveys, others see only their own."),
-    create=extend_schema(summary="Create survey", description="Create a new survey. Requires create_survey permission."),
-    retrieve=extend_schema(summary="Get survey", description="Get survey details with sections, fields, and rules. Users with view_responses permission or survey creators can view."),
-    partial_update=extend_schema(summary="Update survey", description="Update survey title, description, or status. Requires edit_survey permission or be the creator."),
-    destroy=extend_schema(summary="Delete survey", description="Delete a survey and all its data. Requires delete_survey permission or be the creator."),
+    list=extend_schema(
+        tags=["Surveys"],
+        summary="List surveys",
+        description="""
+        Retrieve a list of surveys based on user permissions.
+        
+        **Permission-based filtering:**
+        - Users with `view_responses` permission can see all surveys
+        - Other users only see surveys they created
+        
+        **Supports pagination** (default: 20 items per page)
+        """
+    ),
+    create=extend_schema(
+        tags=["Surveys"],
+        summary="Create survey",
+        description="""
+        Create a new survey with title, description, and optional settings.
+        
+        **Required Permission:** `create_survey`
+        
+        **Next Steps:** After creation:
+        1. Add sections to organize the survey
+        2. Add fields to each section
+        3. Configure conditional logic (optional)
+        4. Publish the survey to make it available for submissions
+        """
+    ),
+    retrieve=extend_schema(
+        tags=["Surveys"],
+        summary="Get survey details",
+        description="""
+        Retrieve complete survey details including all sections, fields, options, and conditional rules.
+        
+        **Access Control:**
+        - Users with `view_responses` permission can view any survey
+        - Survey creators can view their own surveys
+        - Returns 403 for unauthorized access
+        
+        **Response includes:** Full nested structure with sections, fields, field options, conditional rules, and dependencies.
+        """
+    ),
+    partial_update=extend_schema(
+        tags=["Surveys"],
+        summary="Update survey",
+        description="""
+        Update survey metadata (title, description, status).
+        
+        **Required Permission:** `edit_survey` or be the survey creator
+        
+        **Updatable Fields:**
+        - title
+        - description
+        - status (draft/published/closed)
+        
+        **Note:** Use dedicated endpoints to manage sections, fields, and rules.
+        """
+    ),
+    destroy=extend_schema(
+        tags=["Surveys"],
+        summary="Delete survey",
+        description="""
+        Permanently delete a survey and all associated data.
+        
+        **Required Permission:** `delete_survey` or be the survey creator
+        
+        **Warning:** This action:
+        - Deletes all sections, fields, and options
+        - Deletes all survey responses
+        - Cannot be undone
+        
+        **Best Practice:** Consider closing the survey instead of deleting it to preserve historical data.
+        """
+    ),
 )
 class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """ViewSet for managing surveys."""
@@ -89,7 +158,19 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
         # User doesn't have permission
         return Response({'detail': 'You do not have permission to view this survey.'}, status=status.HTTP_403_FORBIDDEN)
 
-    @extend_schema(summary="Publish survey", description="Change survey status to published. Requires publish_survey permission.")
+    @extend_schema(
+        tags=["Surveys"],
+        summary="Publish survey",
+        description="""
+        Change survey status to published, making it available for public submissions.
+        
+        **Required Permission:** `publish_survey`
+        
+        **Prerequisites:** Survey should have at least one section with fields configured.
+        
+        **Effect:** Once published, the survey becomes accessible via the public submission endpoints.
+        """
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanPublishSurvey])
     def publish(self, request, pk=None):
         survey = self.get_object()
@@ -99,7 +180,20 @@ class SurveyViewSet(AuditLogMixin, viewsets.ModelViewSet):
         survey.save()
         return Response({'detail': 'Survey published successfully'})
 
-    @extend_schema(summary="Close survey", description="Change survey status to closed. Requires edit_survey permission or be the creator.")
+    @extend_schema(
+        tags=["Surveys"],
+        summary="Close survey",
+        description="""
+        Change survey status to closed, preventing new submissions.
+        
+        **Required Permission:** `edit_survey` or be the survey creator
+        
+        **Effect:** 
+        - No new submissions will be accepted
+        - Existing responses remain accessible
+        - Survey can still be viewed and managed
+        """
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanEditSurvey])
     def close(self, request, pk=None):
         survey = self.get_object()

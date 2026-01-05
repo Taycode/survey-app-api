@@ -45,6 +45,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         return serializers.Serializer
 
     @extend_schema(
+        tags=["Survey Submission"],
         summary="Start a new survey session",
         description="""
         **Step 1: Initialize Survey Session**
@@ -95,8 +96,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
                 'required': ['session_token']
             },
             404: {'description': 'Survey not found or not published'}
-        },
-        tags=['Survey Submission']
+        }
     )
     @action(detail=False, methods=['post'], url_path='start')
     def start_survey(self, request, survey_pk=None):
@@ -147,6 +147,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         return True, None
 
     @extend_schema(
+        tags=["Survey Submission"],
         summary="Submit answers for a section",
         description="""
         **Step 2: Save Section Answers**
@@ -254,8 +255,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
                 }
             },
             404: {'description': 'Session or Section not found'}
-        },
-        tags=['Survey Submission']
+        }
     )
     @action(detail=False, methods=['post'], url_path='submit-section')
     def submit_section(self, request):
@@ -347,6 +347,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_200_OK)
 
     @extend_schema(
+        tags=["Survey Submission"],
         summary="Get current section to complete",
         description="""
         **Get Next Section**
@@ -420,8 +421,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
             200: CurrentSectionResponseSerializer,
             400: {'description': 'Missing X-Session-Token header'},
             404: {'description': 'Session not found'}
-        },
-        tags=['Survey Submission']
+        }
     )
     @action(detail=False, methods=['get'], url_path='current-section')
     def get_current_section(self, request):
@@ -437,6 +437,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         return Response(result, status=status.HTTP_200_OK)
 
     @extend_schema(
+        tags=["Survey Submission"],
         summary="Get specific section for navigation/editing",
         description="""
         **Navigation: Get Section with Pre-filled Answers**
@@ -512,8 +513,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
             400: {'description': 'Missing X-Session-Token header'},
             404: {'description': 'Session or section not found'},
             403: {'description': 'Section is hidden'}
-        },
-        tags=['Survey Submission']
+        }
     )
     @action(detail=False, methods=['get'], url_path='sections/(?P<section_id>[^/.]+)/')
     def get_section(self, request, section_id=None):
@@ -535,6 +535,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
         return Response(result, status=status.HTTP_200_OK)
 
     @extend_schema(
+        tags=["Survey Submission"],
         summary="Finish survey",
         description="""
         **Step 3: Complete Survey**
@@ -602,8 +603,7 @@ class SubmissionViewSet(viewsets.GenericViewSet):
                 }
             },
             404: {'description': 'Session not found'}
-        },
-        tags=['Survey Submission']
+        }
     )
     @action(detail=False, methods=['post'], url_path='finish')
     def finish_survey(self, request):
@@ -673,6 +673,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
         return [IsAuthenticated(), CanViewResponses()]
     
     @extend_schema(
+        tags=["Response Management"],
         summary="List responses for a survey",
         description="""
         List all responses for a specific survey.
@@ -732,8 +733,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             200: SurveyResponseListSerializer(many=True),
             403: {'description': 'Permission denied'},
             404: {'description': 'Survey not found'}
-        },
-        tags=['Response Viewing']
+        }
     )
     def list(self, request, survey_pk=None):
         """List responses for a survey."""
@@ -776,6 +776,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
     
     @extend_schema(
+        tags=["Response Management"],
         summary="Get single response details",
         description="""
         Get detailed information about a specific survey response.
@@ -791,8 +792,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             200: SurveyResponseDetailSerializer,
             403: {'description': 'Permission denied'},
             404: {'description': 'Response not found'}
-        },
-        tags=['Response Viewing']
+        }
     )
     def retrieve(self, request, pk=None):
         """Get single response details."""
@@ -801,6 +801,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
     
     @extend_schema(
+        tags=["Response Management"],
         summary="Export responses as CSV or JSON",
         description="""
         Export survey responses as CSV or JSON file.
@@ -872,8 +873,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             202: {'description': 'Export request received - File will be sent via email'},
             403: {'description': 'Permission denied'},
             404: {'description': 'Survey not found'}
-        },
-        tags=['Response Viewing']
+        }
     )
     @action(detail=False, methods=['get'], url_path='export')
     def export_responses(self, request, survey_pk=None):
@@ -928,6 +928,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
         }, status=status.HTTP_202_ACCEPTED)
     
     @extend_schema(
+        tags=["Analytics"],
         summary="Get survey analytics",
         description="""
         Get aggregated analytics for a specific survey.
@@ -957,8 +958,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             200: SurveyAnalyticsSerializer,
             403: {'description': 'Permission denied'},
             404: {'description': 'Survey not found'}
-        },
-        tags=['Analytics']
+        }
     )
     @action(detail=False, methods=['get'], url_path='analytics')
     def analytics(self, request, survey_pk=None):
@@ -981,6 +981,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
     
     @extend_schema(
+        tags=["Response Management"],
         summary="Send batch survey invitations",
         description="""
         Send survey invitations to a list of email addresses.
@@ -1029,8 +1030,7 @@ class ResponseViewSet(AuditLogMixin, viewsets.ReadOnlyModelViewSet):
             400: {'description': 'Invalid request body'},
             403: {'description': 'Permission denied'},
             404: {'description': 'Survey not found'}
-        },
-        tags=['Invitations']
+        }
     )
     @action(detail=False, methods=['post'], url_path='invitations', permission_classes=[IsAuthenticated, CanPublishSurvey])
     def send_invitations(self, request, survey_pk=None):
