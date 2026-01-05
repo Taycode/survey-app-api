@@ -163,7 +163,8 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.URLPathVersioning",
     "DEFAULT_VERSION": "v1",
-    "ALLOWED_VERSIONS": ["v1"],
+    "ALLOWED_VERSIONS": ["v1", "v2"],  # Ready for future API versions
+    "VERSION_PARAM": "version",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
@@ -171,11 +172,27 @@ REST_FRAMEWORK = {
 # drf-spectacular configuration
 SPECTACULAR_SETTINGS = {
     "TITLE": "Survey Platform API",
-    "DESCRIPTION": "Advanced Dynamic Survey Platform - Enterprise-level API for creating, deploying, and analyzing surveys.",
+    "DESCRIPTION": "Enterprise-level API for creating, deploying, and analyzing surveys.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": "/api/v[0-9]",
+    
+    # Document authentication in Swagger UI
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+        }
+    },
+    
+    # Swagger UI enhancements
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,  # Keep login when testing
+        "filter": True,  # Add search/filter box for endpoints
+    },
 }
 
 

@@ -2,6 +2,22 @@
 
 Advanced Dynamic Survey Platform - Enterprise-level REST API for creating, deploying, and analyzing surveys.
 
+## 📚 API Documentation
+
+**Interactive Documentation:**
+- **Swagger UI**: http://localhost:8000/api/docs/
+- **ReDoc**: http://localhost:8000/api/redoc/
+- **OpenAPI Schema**: http://localhost:8000/api/schema/
+
+**Code Examples:**
+```bash
+python api_docs/examples.py
+```
+
+See [api_docs/](api_docs/) for working Python examples.
+
+---
+
 ## Features
 
 - **Dynamic Survey Builder** - Multi-step surveys with sections, various field types, conditional logic, and field dependencies
@@ -9,7 +25,7 @@ Advanced Dynamic Survey Platform - Enterprise-level REST API for creating, deplo
 - **Data Security** - AES-256-GCM encryption for sensitive fields, RBAC permissions
 - **Async Processing** - Celery-powered exports, batch invitations
 - **Analytics** - Survey-level statistics with caching
-- **API Documentation** - OpenAPI/Swagger via drf-spectacular
+- **Comprehensive Documentation** - OpenAPI/Swagger with detailed guides and examples
 
 ## Tech Stack
 
@@ -152,7 +168,7 @@ POST /api/v1/auth/register/
 POST /api/v1/auth/login/
 
 # Refresh token
-POST /api/v1/auth/refresh/
+POST /api/v1/auth/token/refresh/
 
 # Use token in requests
 Authorization: Bearer <access_token>
@@ -165,7 +181,7 @@ Authorization: Bearer <access_token>
 GET/POST /api/v1/surveys/
 
 # Survey details
-GET/PUT/DELETE /api/v1/surveys/{id}/
+GET/PATCH/DELETE /api/v1/surveys/{id}/
 
 # Publish survey
 POST /api/v1/surveys/{id}/publish/
@@ -201,15 +217,7 @@ GET /api/v1/surveys/{id}/responses/export/?format=csv
 GET /api/v1/surveys/{id}/responses/analytics/
 ```
 
-### Invitations
-
-```bash
-# Send batch invitations
-POST /api/v1/surveys/{id}/invitations/
-{
-  "emails": ["user1@example.com", "user2@example.com"]
-}
-```
+**For complete documentation**: Visit http://localhost:8000/api/docs/
 
 ---
 
